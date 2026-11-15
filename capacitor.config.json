@@ -1,0 +1,2 @@
+{"appId":"com.piyasa.terminali","appName":"Piyasa Terminali","webDir":"www",
+ "plugins":{"CapacitorHttp":{"enabled":true}},"server":{"androidScheme":"https"}}
