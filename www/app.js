@@ -1,5 +1,5 @@
 'use strict';
-const demo=[{symbol:'THYAO',price:null,change:null,score:82},{symbol:'ASELS',price:null,change:null,score:79},{symbol:'TUPRS',price:null,change:null,score:74},{symbol:'BIMAS',price:null,change:null,score:68}];
+const demo=['THYAO','ASELS','TUPRS','BIMAS'].map(symbol=>({symbol,price:null,change:null,score:null}));
 const $=id=>document.getElementById(id);
 let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0;
 let favorites={};
