@@ -49,7 +49,7 @@ async function analyzeFutures(symbol){
   const intervals=['5m','15m','1h'];
   const series=await Promise.all(intervals.map(async interval=>{
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-   try{const url='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(symbol)+'&interval='+interval+'&limit=100';const response=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!response.ok)throw Error(interval+' HTTP '+response.status);const candles=await response.json();if(!Array.isArray(candles)||candles.length<55)throw Error(interval+' yetersiz mum');return{interval,candles:candles.slice(0,-1)}}finally{clearTimeout(timer)}
+   try{const url='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(symbol)+'&interval='+interval+'&limit=100';const response=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!response.ok)throw Error(interval+' HTTP '+response.status);const candles=await response.json();if(!Array.isArray(candles))throw Error(interval+' geçersiz mum verisi');const completed=candles.filter(c=>Array.isArray(c)&&Number(c[6])<Date.now());if(completed.length<55)throw Error(interval+' yetersiz kapanmış mum');return{interval,candles:completed}}finally{clearTimeout(timer)}
   }));
   if(id!==requestId)return;
   const output=series.map(({interval,candles})=>{
@@ -58,14 +58,23 @@ async function analyzeFutures(symbol){
    const base=volumes.slice(-21,-1).reduce((a,b)=>a+b,0)/20;
    const relativeVolume=base>0?volumes.at(-1)/base:null;
    const trend=fast!=null&&slow!=null?(fast>slow?'Yukarı':'Aşağı'):'Belirsiz';
-   return{interval,trend,rsi:strength,rv:relativeVolume};
+   const previousHigh=Math.max(...candles.slice(-21,-1).map(c=>Number(c[2])));
+   const latestClose=closes.at(-1),distance=previousHigh>0?100*(previousHigh-latestClose)/previousHigh:null;
+   const nearBreakout=distance!==null&&distance>=0&&distance<=2;
+   const breakout=latestClose>previousHigh;
+   const volumeSurge=relativeVolume!==null&&relativeVolume>=1.8;
+   const earlyWatch=trend==='Yukarı'&&volumeSurge&&nearBreakout&&strength>=50&&strength<=75;
+   return{interval,trend,rsi:strength,rv:relativeVolume,nearBreakout,breakout,earlyWatch,distance};
   });
   const aligned=output.filter(x=>x.trend==='Yukarı').length;
+  const early=output.filter(x=>x.earlyWatch).map(x=>x.interval);
+  const broken=output.filter(x=>x.breakout).map(x=>x.interval);
   detail.replaceChildren();
   const heading=document.createElement('strong');heading.textContent=symbol+' | Ön analiz (5m / 15m / 1h)';detail.append(heading);
   const p=document.createElement('p');p.textContent='EMA20/EMA50 yükseliş uyumu: '+aligned+'/3. Bu gösterge, masaüstü MTF 100 fırsat skoru değildir.';detail.append(p);
-  for(const x of output){const line=document.createElement('p');line.textContent=x.interval+' | EMA trendi: '+x.trend+' | RSI14: '+(x.rsi==null?'—':x.rsi.toFixed(1))+' | Göreceli hacim: '+(x.rv==null?'—':x.rv.toFixed(2)+'x');detail.append(line)}
-  const note=document.createElement('small');note.textContent='Yalnızca kapanmış mumlar kullanılır. Giriş, stop, TP veya al/sat sinyali üretilmez. Canlı veri erişimi bölgesel olarak kısıtlanabilir.';detail.append(note);
+  const watch=document.createElement('p');watch.textContent='Erken hacim izleme (deneysel): '+(early.length?early.join(', '):'Koşullar sağlanmadı')+' | Son 20 mum tepe üzeri kapanış: '+(broken.length?broken.join(', '):'Yok');detail.append(watch);
+  for(const x of output){const line=document.createElement('p');line.textContent=x.interval+' | EMA trendi: '+x.trend+' | RSI14: '+(x.rsi==null?'—':x.rsi.toFixed(1))+' | Göreceli hacim: '+(x.rv==null?'—':x.rv.toFixed(2)+'x')+' | Tepeye uzaklık: '+(x.distance===null?'—':x.distance.toFixed(2)+'%');detail.append(line)}
+  const note=document.createElement('small');note.textContent='Yalnızca kapanmış mumlar kullanılır. Deneysel izleme: EMA20>EMA50, RVOL≥1.8, RSI 50–75 ve son 20 mum tepesine %0–2 mesafe. Bu masaüstü kalkış algoritması değildir. Giriş, stop, TP veya al/sat sinyali üretilmez. Canlı veri erişimi bölgesel olarak kısıtlanabilir.';detail.append(note);
  }catch(err){if(id===requestId)detail.textContent='MTF ön analizi alınamadı: '+err.message}
 }
 
