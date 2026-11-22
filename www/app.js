@@ -25,7 +25,33 @@ async function scan(single=false){
  const symbol=$('search').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
  if(single&&!symbol){$('status').textContent='Önce sembol yazın';return}
  const current=++requestId;
- if(market==='BIST'){source='demo';rows=single?demo.filter(x=>x.symbol===symbol):demo.slice();$('notice').textContent='DEMO: Skorlar örnektir; güncel fiyat, canlı sinyal veya yatırım tavsiyesi değildir.';render();return}
+ if(market==='BIST'){
+  // A licensed BIST feed must be served by a trusted backend. No API keys in the APK.
+  const endpoint=window.PT_BIST_API_URL;
+  if(!endpoint){source='demo';rows=single?demo.filter(x=>x.symbol===symbol):demo.slice();$('notice').textContent='DEMO: Canlı BIST veri sağlayıcısı yapılandırılmadı. Skorlar örnektir.';render();return}
+  $('status').textContent='BIST verisi alınıyor…';
+  try{
+    const target=new URL(endpoint,location.href);
+    if(target.protocol!=='https:' && target.hostname!=='localhost')throw Error('Güvenli HTTPS bağlantısı gerekli');
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+    let response;try{response=await fetch(target.href,{signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const payload=await response.json();if(current!==requestId)return;
+    if(!payload||!Array.isArray(payload.symbols)||typeof payload.source!=='string'||!payload.source.trim()||!Number.isFinite(Date.parse(payload.asOf)))throw Error('Geçersiz veri şeması');
+    if(Date.parse(payload.asOf)>Date.now()+300000)throw Error('Gelecek tarihli veri');
+    const delay=Number(payload.delayedMinutes);
+    if(!Number.isFinite(delay)||delay<0)throw Error('Gecikme bilgisi eksik');
+    const seen=new Set();
+    rows=payload.symbols.filter(x=>{
+      if(!x||typeof x.symbol!=='string'||!/^([A-Z]{4,6})$/.test(x.symbol)||seen.has(x.symbol)||!Number.isFinite(x.last)||x.last<=0||!Number.isFinite(x.volume)||x.volume<0||x.currency!=='TRY')return false;
+      seen.add(x.symbol);return !single||x.symbol===symbol;
+    }).map(x=>({symbol:x.symbol,price:x.last,change:Number.isFinite(x.changePercent)?x.changePercent:null,score:null}));
+    source='live';$('universe').textContent='Alınan: '+rows.length+' / Hedef: 631';
+    $('notice').textContent='Kaynak: '+payload.source+' | Zaman: '+new Date(payload.asOf).toLocaleString('tr-TR')+' | Gecikme: '+delay+' dk. MTF 100 skoru hesaplanmadı.';
+    render();if(!rows.length)$('status').textContent='Geçerli sembol bulunamadı';
+  }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST verisi alınamadı';$('notice').textContent='Canlı veri hatası: '+err.message+'. Demo sonuç üretilmedi.'}
+  return;
+}
  const urls={FUTURES:'https://fapi.binance.com/fapi/v1/ticker/24hr',BINANCE:'https://api.binance.com/api/v3/ticker/24hr',BINANCE_TR:'https://api.binance.tr/api/v3/ticker/24hr'};
  $('status').textContent='Veri alınıyor…';
  try{
