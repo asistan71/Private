@@ -28,7 +28,7 @@ async function scan(single=false){
  if(market==='BIST'){
   // A licensed BIST feed must be served by a trusted backend. No API keys in the APK.
   const endpoint=window.PT_BIST_API_URL;
-  if(!endpoint){source='demo';rows=single?demo.filter(x=>x.symbol===symbol):demo.slice();$('notice').textContent='DEMO: Canlı BIST veri sağlayıcısı yapılandırılmadı. Skorlar örnektir.';render();return}
+  if(!endpoint){source='demo';rows=single?demo.filter(x=>x.symbol===symbol):demo.slice();$('notice').textContent='DEMO: BIST veri sağlayıcısı bağlı değil; fiyat ve fırsat puanı hesaplanmıyor.';render();return}
   $('status').textContent='BIST verisi alınıyor…';
   try{
     const target=new URL(endpoint,location.href);
