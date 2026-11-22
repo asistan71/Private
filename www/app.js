@@ -1,5 +1,5 @@
 'use strict';
-const demo=['THYAO','ASELS','TUPRS','BIMAS'].map(symbol=>({symbol,price:null,change:null,score:null}));
+const demo=[];
 const $=id=>document.getElementById(id);
 let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0;
 let favorites={};
@@ -16,7 +16,7 @@ function render(){
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score),x.score==null?'Skor hesaplanmadı':x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle'].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
   tr.addEventListener('click',()=>{if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
- $('status').textContent=filtered.length+' '+(source==='live'?'piyasa kaydı':'örnek aday');
+ $('status').textContent=filtered.length+' '+(source==='live'?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
 }
 function reset(){requestId++;rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
@@ -28,7 +28,7 @@ async function scan(single=false){
  if(market==='BIST'){
   // A licensed BIST feed must be served by a trusted backend. No API keys in the APK.
   const endpoint=window.PT_BIST_API_URL;
-  if(!endpoint){source='demo';rows=single?demo.filter(x=>x.symbol===symbol):demo.slice();$('notice').textContent='DEMO: BIST veri sağlayıcısı bağlı değil; fiyat ve fırsat puanı hesaplanmıyor.';render();return}
+  if(!endpoint){source='demo';rows=[];$('notice').textContent='BIST veri kaynağı henüz bağlı değil. 631 hisse hedefleniyor; gerçek fiyat, hacim ve fırsat puanı mevcut değil.';render();$('status').textContent='BIST: veri kaynağı gerekli';return}
   $('status').textContent='BIST verisi alınıyor…';
   try{
     const target=new URL(endpoint,location.href);
@@ -54,7 +54,23 @@ async function scan(single=false){
   }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST verisi alınamadı';$('notice').textContent='Canlı veri hatası: '+err.message+'. Demo sonuç üretilmedi.'}
   return;
 }
- const urls={FUTURES:'https://fapi.binance.com/fapi/v1/ticker/24hr',BINANCE:'https://api.binance.com/api/v3/ticker/24hr',BINANCE_TR:'https://api.binance.tr/api/v3/ticker/24hr'};
+ if(market==='BINANCE_TR'){
+  $('status').textContent='Binance TR pariteleri alınıyor…';
+  try{
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+   let response;try{response=await fetch('https://www.binance.tr/open/v1/common/symbols',{signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}
+   if(!response.ok)throw Error('HTTP '+response.status);
+   const payload=await response.json();if(current!==requestId)return;
+   if(payload.code!==0||!payload.data||!Array.isArray(payload.data.list))throw Error('Beklenmeyen Binance TR yanıtı');
+   const seen=new Set();
+   rows=payload.data.list.filter(x=>x&&typeof x.symbol==='string'&&x.spotTradingEnable!==0).map(x=>({symbol:x.symbol.replace(/_/g,''),price:null,change:null,score:null})).filter(x=>{if(!/^[A-Z0-9]+$/.test(x.symbol)||seen.has(x.symbol))return false;seen.add(x.symbol);return !single||x.symbol===symbol});
+   source='symbols';$('universe').textContent='Binance TR pariteleri: '+rows.length;
+   $('notice').textContent='Binance TR resmî API: parite listesi alındı. Bu uç nokta fiyat ve 24 saatlik değişim sağlamaz; fiyat taraması ve MTF 100 henüz aktif değil.';
+   render();$('status').textContent=rows.length+' Binance TR paritesi (fiyat verisi yok)';
+  }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Binance TR verisi alınamadı';$('notice').textContent='Binance TR resmî API bağlantısı başarısız: '+err.message+'. Android WebView/CORS kısıtlaması olabilir.'}
+  return;
+ }
+ const urls={FUTURES:'https://fapi.binance.com/fapi/v1/ticker/24hr',BINANCE:'https://api.binance.com/api/v3/ticker/24hr'};
  $('status').textContent='Veri alınıyor…';
  try{
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
