@@ -36,3 +36,7 @@ Durum: **Canlı BIST sağlayıcısı bağlı değil.** Uygulamadaki THYAO/ASELS/
 3. Eksik/tekrarlı semboller doğru ele alınır; alınan ve hedef evren sayıları ayrılır.
 4. 5m/15m/1h analizleri yalnızca kapanmış mum kullanır.
 5. APK derlemesi ve fiziksel Android cihaz testi ayrı ayrı doğrulanır.
+
+## Ücretsiz veriyle ilerleme kararı (23 Kasım 2026)
+
+Kullanıcı lisanslı veri aboneliğini yenilemeden ilerlemeyi seçti. Yalnızca kullanım koşulları otomatik erişime izin veren ücretsiz/açık uç noktalar değerlendirilecek. Kaynak bulunana kadar BIST demo modunda kalacak; gerçek zamanlılık, 631 hissenin kapsandığı veya MTF skoru üretildiği iddia edilmeyecek. Her kaynak için kullanım koşulları, hız limiti, veri gecikmesi, OHLCV geçmişi, sembol kapsamı ve Android erişimi doğrulanmadan entegrasyon etkinleştirilmeyecek. Binance halka açık piyasa verileri ayrı tutulacak.
