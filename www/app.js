@@ -39,6 +39,8 @@ async function scan(single=false){
     const payload=await response.json();if(current!==requestId)return;
     if(!payload||!Array.isArray(payload.symbols)||typeof payload.source!=='string'||!payload.source.trim()||!Number.isFinite(Date.parse(payload.asOf)))throw Error('Geçersiz veri şeması');
     if(Date.parse(payload.asOf)>Date.now()+300000)throw Error('Gelecek tarihli veri');
+    const ageMinutes=(Date.now()-Date.parse(payload.asOf))/60000;
+    if(ageMinutes>Math.max(30,Number(payload.delayedMinutes||0)+20))throw Error('Veri güncel değil ('+Math.round(ageMinutes)+' dk eski)');
     const delay=Number(payload.delayedMinutes);
     if(!Number.isFinite(delay)||delay<0)throw Error('Gecikme bilgisi eksik');
     const seen=new Set();
