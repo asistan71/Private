@@ -203,7 +203,7 @@ async function scoreTrSingle(scanId,x){
 async function scoreBinanceCandidates(scanId, single, selectedMarket){
  const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null&&(single||x.quoteVolume>=20000000)).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:20);
  if(!candidates.length){$('notice').textContent='Günlük USDT işlem hacmi en az 20 milyon olan uygun aday bulunamadı. Tek Tara ile belirli bir sembolü inceleyebilirsiniz.';return;}
- $('notice').textContent='İlk +candidates.length+' USDT '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Toplu taramada en az 20 milyon USDT günlük hacim filtresi uygulanır; diğerlerinde skor yok.';
+ $('notice').textContent='İlk '+candidates.length+' USDT '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Toplu taramada en az 20 milyon USDT günlük hacim filtresi uygulanır; diğerlerinde skor yok.';
  let cursor=0,success=0,failed=0,firstError='';
  async function worker(){
   while(cursor<candidates.length&&scanId===requestId){
