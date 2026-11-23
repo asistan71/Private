@@ -87,11 +87,16 @@ async function analyzeBistSymbol(symbol){
   latest=Math.max(latest,tail.at(-1).ts);
   agesByTf[tf]=Math.max(0,Math.round((Date.now()/1000-tail.at(-1).ts)/60));
  }
+ const daily=raw['1D'],dailyVolumes=daily.volume;
+ const lastDailyVolume=dailyVolumes.at(-1);
+ const previous10DailyVolumes=dailyVolumes.slice(-11,-1);
+ const average10DailyVolume=previous10DailyVolumes.reduce((sum,v)=>sum+v,0)/previous10DailyVolumes.length;
+ const dailyVolumeRatioExact=average10DailyVolume>0?lastDailyVolume/average10DailyVolume:null;
  const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2});
  if(result.Hata)throw Error(result.Hata);
  const diagnostic=result.Filtre?BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:true}):result;
  if(diagnostic.Hata)throw Error(diagnostic.Hata);
- return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:diagnostic.HacimOran,volumeStatus:diagnostic.HacimOran<1?'ORTALAMA ALTI':'ORTALAMA USTU',stale:agesByTf['1H']>180},latest,agesByTf};
+ return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:dailyVolumeRatioExact,dailyCandleDate:daily.lastDate,lastDailyVolume,average10DailyVolume,volumeSampleDays:previous10DailyVolumes.length,volumeStatus:dailyVolumeRatioExact<1?'ORTALAMA ALTI':'ORTALAMA USTU',stale:agesByTf['1H']>180},latest,agesByTf};
 }
 function csvCell(value){const s=String(value??'');return '"'+s.replace(/"/g,'""')+'"'}
 $('exportBistReport').addEventListener('click',async()=>{
@@ -99,8 +104,8 @@ $('exportBistReport').addEventListener('click',async()=>{
  const button=$('exportBistReport');button.disabled=true;
  try{
   const report=bistPilotReport;
-  const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','HacimDurumu','SaatlikMumYasiDakika','EskiVeri'];
-  const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.volumeStatus,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
+  const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','GunlukMumTarihi','SonGunlukHacim','Onceki10GunOrtHacim','HacimOrnekGun','HacimDurumu','SaatlikMumYasiDakika','EskiVeri'];
+  const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.dailyCandleDate,x.lastDailyVolume,x.average10DailyVolume,x.volumeSampleDays,x.volumeStatus,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
   const metadata=[['TaramaZamani',report.at],['HedefHisse',report.selectedCount],['Basarili',report.success],['Hata',report.errors],['SureSaniye',report.seconds],['Durum',report.stoppedForErrors?'Uc ardisik hata nedeniyle durdu':'Tamamlandi']];
   const lines=[...metadata.map(r=>r.map(csvCell).join(';')),'',header.map(csvCell).join(';'),...records.map(r=>r.map(csvCell).join(';')),'','BasarisizHisse;Hata',...report.failures.map(x=>[x.symbol,x.reason].map(csvCell).join(';'))];
   const csv='\uFEFF'+lines.join('\r\n');
