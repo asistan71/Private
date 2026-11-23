@@ -80,26 +80,30 @@ async function analyzeBistSymbol(symbol){
  return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||''},latest};
 }
 async function scanBistPilot(){
+ const start=performance.now(),metrics=$('bistMetrics');metrics.hidden=false;metrics.textContent='Pilot ölçümü başlatılıyor…';
  const current=++requestId;
  rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
- let errors=0,success=0,filtered=0;const failures=[];
+ let errors=0,success=0,filtered=0;const failures=[],latencies=[],ages=[];
  $('notice').textContent='10 hisselik pilot tarama başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
  for(let i=0;i<BIST_PILOT.length;i++){
   if(current!==requestId||market!=='BIST')return;
   const sym=BIST_PILOT[i];$('status').textContent=(i+1)+'/10 | '+sym+' alınıyor…';
   try{
-   const {row}=await analyzeBistSymbol(sym);
+   const began=performance.now();const {row,latest}=await analyzeBistSymbol(sym);
    if(current!==requestId)return;
-   rows.push(row);success++;if(row.filterReason)filtered++;
+   rows.push(row);success++;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason)filtered++;
   }catch(e){if(current!==requestId)return;errors++;failures.push(sym+': '+e.message.slice(0,90))}
-  render();$('status').textContent=(i+1)+'/10 tamamlandı | '+success+' veri | '+errors+' hata';
+  render();$('status').textContent=(i+1)+'/10 tamamlandı | '+success+' veri | '+errors+' hata';metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+(i+1)+' | Hata: '+errors;
   if(i<BIST_PILOT.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
  }
  if(current!==requestId)return;
  $('status').textContent='Pilot tamamlandı: '+success+'/10';
+ const total=Math.round((performance.now()-start)/1000),avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null;
+ metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/10 ('+Math.round(success*10)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | En eski son mum: '+(age??'—')+' dk';
  $('notice').textContent='10 hisse pilotu | veri: '+success+' | filtrelenen: '+filtered+' | hata: '+errors+'. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
 }
 async function scanBistTV(symbol){
+ $('bistMetrics').hidden=true;
  const current=++requestId;
  $('status').textContent=symbol+' | TradingView ücretsiz BIST mumları alınıyor…';
  try{
