@@ -9,19 +9,20 @@ globalThis.BistTV = (() => {
   return new Promise((resolve,reject)=>{
    if(!/^[A-Z0-9]{4,6}$/.test(symbol)){reject(Error('Geçersiz sembol'));return}
    const ws=new WebSocket(WS),session='cs_'+makeId(),out={},series={ser_w:'1W',ser_d:'1D',ser_h:'1H'};
-   let buffer='',done=false;
-   const timer=setTimeout(()=>finish(Error('TradingView bağlantısı zaman aşımı')),timeout);
+   let buffer='',done=false,lastEvent='Bağlantı açılmadı';
+   const timer=setTimeout(()=>finish(Error('TradingView zaman aşımı | '+lastEvent+' | gelen seriler: '+Object.entries(out).map(([k,v])=>k+':'+v.length).join(', '))),timeout);
    function finish(err){if(done)return;done=true;clearTimeout(timer);try{ws.close()}catch(_){};err?reject(err):resolve(out)}
    function send(m,p){if(ws.readyState===WebSocket.OPEN)ws.send(frame({m,p}))}
    ws.onopen=()=>{
+    lastEvent='WebSocket açıldı';
     send('set_auth_token',['unauthorized_user_token']);
     send('chart_create_session',[session,'']);
     send('resolve_symbol',[session,'sym_1','='+JSON.stringify({symbol:'BIST:'+symbol,adjustment:'splits',session:'regular'})]);
     for(const [id,tf,n] of [['ser_w','W',180],['ser_d','D',240],['ser_h','60',240]])
      send('create_series',[session,id,'s_'+id,'sym_1',tf,n,'']);
    };
-   ws.onerror=()=>finish(Error('TradingView WebSocket bağlantısı kurulamadı'));
-   ws.onclose=()=>{if(!done)finish(Error('TradingView bağlantısı kapandı'))};
+   ws.onerror=()=>finish(Error('TradingView WebSocket ağ/erişim hatası | '+lastEvent));
+   ws.onclose=e=>{if(!done)finish(Error('TradingView bağlantısı kapandı (kod '+e.code+') | '+lastEvent))};
    ws.onmessage=event=>{
     buffer+=String(event.data);
     // Frames may be coalesced; parse ~m~len~m~payload.
@@ -30,9 +31,10 @@ globalThis.BistTV = (() => {
      const len=Number(buffer.slice(3,p));if(!Number.isInteger(len)||len<0||len>10000000){finish(Error('Geçersiz veri çerçevesi'));return}
      const start=p+3;if(buffer.length<start+len)break;
      const body=buffer.slice(start,start+len);buffer=buffer.slice(start+len);
-     if(body.startsWith('~h~')){try{ws.send(frame(body))}catch(_){};continue}
+     if(body.startsWith('~h~')){try{ws.send('~m~'+body.length+'~m~'+body)}catch(_){};continue}
      let msg;try{msg=JSON.parse(body)}catch(_){continue}
-     if(msg.m==='symbol_error'||msg.m==='series_error'){finish(Error('BIST sembolü veya seri reddedildi'));return}
+     lastEvent=String(msg.m||'mesaj');
+     if(msg.m==='symbol_error'||msg.m==='series_error'||msg.m==='critical_error'){finish(Error('TradingView '+msg.m+': '+JSON.stringify(msg.p||[]).slice(0,180)));return}
      if(!['timescale_update','du','series_completed'].includes(msg.m))continue;
      const payload=msg.p||[];
      for(const item of payload){
