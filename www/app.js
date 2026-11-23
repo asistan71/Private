@@ -44,7 +44,7 @@ async function scan(single=false){
     if(!response.ok)throw Error('API HTTP '+response.status);
     const payload=await response.json();if(current!==requestId)return;
     if(!payload||!Array.isArray(payload.results)||!Number.isInteger(payload.requested))throw Error('Python API şeması geçersiz');
-    rows=payload.results.filter(x=>x&&typeof x.Sembol==='string'&&/^[A-Z0-9]{4,6}$/.test(x.Sembol)&&Number.isFinite(Number(x.Fiyat))&&Number(x.Fiyat)>0&&Number.isFinite(Number(x.Puan))).map(x=>({symbol:x.Sembol,price:Number(x.Fiyat),change:Number.isFinite(Number(x.Degisim))?Number(x.Degisim):null,score:Number(x.Puan),plan:x}));
+    rows=payload.results.filter(x=>x&&typeof x.Sembol==='string'&&/^[A-Z0-9]{4,6}$/.test(x.Sembol)&&Number.isFinite(Number(x.Fiyat))&&Number(x.Fiyat)>0&&Number.isFinite(Number(x.Puan))&&Number(x.Puan)>=0&&Number(x.Puan)<=100).map(x=>({symbol:x.Sembol,price:Number(x.Fiyat),change:Number.isFinite(Number(x.Degisim))?Number(x.Degisim):null,score:Number(x.Puan),plan:x}));
     source='python';$('universe').textContent='Taranan: '+payload.requested+' | Geçen: '+rows.length;
     $('notice').textContent='Python v23.4 | Filtrelenen: '+(payload.filtered||0)+' | Hata: '+(payload.errors||0)+' | Veri zamanı doğrulanmadı; sonuçlar canlı fiyat olarak sunulmaz.';
     render();$('status').textContent=rows.length+' Python analiz sonucu';
@@ -63,6 +63,7 @@ async function scan(single=false){
    rows=payload.data.list.filter(x=>x&&typeof x.symbol==='string'&&x.spotTradingEnable!==0).map(x=>({symbol:x.symbol.replace(/_/g,''),price:null,change:null,score:null,trType:Number(x.type),apiSymbol:x.symbol})).filter(x=>{if(!/^[A-Z0-9]+$/.test(x.symbol)||seen.has(x.symbol))return false;seen.add(x.symbol);return !single||x.symbol===symbol});
    source='symbols';$('universe').textContent='Binance TR pariteleri: '+rows.length;
    const targets=single?rows.slice(0,1):rows.filter(x=>[1,3].includes(x.trType)&&/(TRY|USDT)$/.test(x.symbol)).slice(0,12);
+   $('status').textContent='Binance TR mum analizi başlıyor: '+targets.length+' parite';
    let cursor=0,done=0,errors=0;
    async function trWorker(){
     while(cursor<targets.length&&current===requestId){
@@ -75,8 +76,8 @@ async function scan(single=false){
    }
    await Promise.all(Array.from({length:3},()=>trWorker()));
    if(current!==requestId)return;
-   $('notice').textContent='Binance TR: '+targets.length+' paritede deneysel 5m/15m/1h ön tarama denendi; '+(done-errors)+' puanlandı, '+errors+' veri hatası. Diğer pariteler puansızdır. Orijinal MTF 100 değildir.';
-   render();$('status').textContent=rows.length+' Binance TR paritesi | '+rows.filter(x=>x.score!==null).length+' puanlı';
+   $('notice').textContent='Binance TR: '+targets.length+' paritede deneysel 5m/15m/1h ön tarama denendi; '+(done-errors)+' puanlandı, '+errors+' veri hatası.'+(errors?' Örnek hata: '+(targets.find(x=>x.scoreError)?.scoreError||'API erişimi')+'.':'')+' Diğer pariteler puansızdır. Orijinal MTF 100 değildir.';
+   render();$('status').textContent=rows.length+' Binance TR paritesi | '+rows.filter(x=>x.score!==null).length+' puanlı | '+errors+' hata';
   }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Binance TR verisi alınamadı';$('notice').textContent='Binance TR resmî API bağlantısı başarısız: '+err.message+'. Android WebView/CORS kısıtlaması olabilir.'}
   return;
  }
