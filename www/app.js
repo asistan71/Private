@@ -95,7 +95,7 @@ async function scanBistDirect(){
   $('universe').textContent='Tek hisse: '+symbol;
   $('notice').textContent='Deneysel doğrudan Yahoo Finance verisi; resmi BIST akışı değildir. Son veri: '+new Date(lastData*1000).toLocaleString('tr-TR')+'. Skor orijinal Python ile eşdeğerliği doğrulanmamış JS uyarlamasıdır. Veriler gecikmeli olabilir.';
   render();$('status').textContent='Deneysel analiz: '+symbol+' | '+result.Puan+'/100';
- }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Doğrudan veri erişilemedi';$('notice').textContent='Yahoo Finance doğrudan bağlantısı başarısız: '+e.message+'. Android WebView CORS veya sağlayıcı kısıtı olabilir. JSON içe aktarma seçeneği çalışmaya devam eder.'}
+ }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Doğrudan veri erişilemedi';$('notice').textContent=String(e.message).includes('429')?'BIST veri sağlayıcısı HTTP 429 ile isteği sınırladı. Tuş ve Android bağlantısı çalışıyor ancak Yahoo Finance bu isteğe veri vermiyor. Tekrar tekrar Tara tuşuna basmayın. 631 hisse taraması için uygun veri sağlayıcısı henüz bağlanmadı.':'BIST veri kaynağına erişilemedi: '+e.message+'. Bu durum tuş hatası değildir; canlı veri bağlantısı henüz güvenilir değil.'}
 }
 $('bistDirectScan').addEventListener('click',scanBistDirect);
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
