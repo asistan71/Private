@@ -128,10 +128,10 @@ async function scoreTrSingle(scanId,x){
 
 // Experimental candle-based screening; not the desktop Python MTF 100 formula.
 async function scoreBinanceCandidates(scanId, single, selectedMarket){
- const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:20);
- if(!candidates.length)return;
- $('notice').textContent='İlk '+candidates.length+' USDT '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Diğerlerinde skor yok.';
- let cursor=0,success=0,failed=0;
+ const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null&&(single||x.quoteVolume>=20000000)).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:20);
+ if(!candidates.length){$('notice').textContent='Günlük USDT işlem hacmi en az 20 milyon olan uygun aday bulunamadı. Tek Tara ile belirli bir sembolü inceleyebilirsiniz.';return;}
+ $('notice').textContent='İlk +candidates.length+' USDT '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Toplu taramada en az 20 milyon USDT günlük hacim filtresi uygulanır; diğerlerinde skor yok.';
+ let cursor=0,success=0,failed=0,firstError='';
  async function worker(){
   while(cursor<candidates.length&&scanId===requestId){
    const x=candidates[cursor++];
@@ -164,7 +164,7 @@ async function scoreBinanceCandidates(scanId, single, selectedMarket){
      score+=part;scoreParts.push({tf:['5m','15m','1h'][i],score:part,trend:e20>e50?'Yukarı':'Aşağı',rsi:r,rvol:rv,near:last>=prevHigh*.98});
     }
     x.score=Math.min(100,score+1);x.scoreParts=scoreParts;x.scoreType='experimental';success++;
-   }catch(_){failed++}
+   }catch(err){failed++;if(!firstError)firstError=err.message||String(err)}
    if(scanId!==requestId)return;
    render();
    $('status').textContent='MTF ön tarama: '+(success+failed)+'/'+candidates.length+' | Puanlı: '+success+' | Hata: '+failed;
@@ -172,7 +172,7 @@ async function scoreBinanceCandidates(scanId, single, selectedMarket){
  }
  await Promise.all(Array.from({length:3},()=>worker()));
  if(scanId!==requestId)return;
- $('notice').textContent='Deneysel '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi. Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
+ $('notice').textContent='Deneysel '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi.'+(failed?' Veri hatası: '+firstError+'.':'')+' Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
 }
 
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let e=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(const v of values.slice(period))e=v*k+e*(1-k);return e}
