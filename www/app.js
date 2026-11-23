@@ -20,7 +20,7 @@ function render(){
  for(const x of filtered){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
-  [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score),x.score==null?'Skor hesaplanmadı':x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle'].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
+  [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score),x.score==null?'Skor hesaplanmadı':x.score>=80?'Deneysel güçlü':x.score>=70?'Deneysel izleme':'Deneysel düşük'].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
   tr.addEventListener('click',()=>{if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
  $('status').textContent=filtered.length+' '+((source==='live'||source==='python')?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
@@ -75,11 +75,57 @@ async function scan(single=false){
   if(!response.ok)throw new Error('HTTP '+response.status);
   const data=await response.json();if(current!==requestId)return;
   if(!Array.isArray(data))throw new Error('Beklenmeyen veri biçimi');
-  source='live';rows=data.filter(x=>typeof x.symbol==='string'&&(!single||x.symbol===symbol)&&(market!=='FUTURES'||x.symbol.endsWith('USDT'))).slice(0,single?1:1000).map(x=>({symbol:x.symbol,price:Number.isFinite(Number(x.lastPrice))?Number(x.lastPrice):null,change:Number.isFinite(Number(x.priceChangePercent))?Number(x.priceChangePercent):null,score:null}));
+  source='live';rows=data.filter(x=>typeof x.symbol==='string'&&(!single||x.symbol===symbol)&&(market!=='FUTURES'||x.symbol.endsWith('USDT'))).slice(0,single?1:1000).map(x=>({symbol:x.symbol,price:Number.isFinite(Number(x.lastPrice))?Number(x.lastPrice):null,change:Number.isFinite(Number(x.priceChangePercent))?Number(x.priceChangePercent):null,score:null,quoteVolume:Number(x.quoteVolume)||0}));
   $('universe').textContent='Getirilen kayıt: '+rows.length;
   $('notice').textContent='24 saatlik fiyat/değişim verisi; gerçek MTF 100 sinyali değildir. BIST 631 hisse taraması ve işlem planı henüz bağlı değil.';
-  render();if(!rows.length)$('status').textContent='Eşleşen sembol bulunamadı';
+  render();if(!rows.length)$('status').textContent='Eşleşen sembol bulunamadı';else if(market==='FUTURES')await scoreFuturesCandidates(current,single);
  }catch(err){if(current!==requestId)return;rows=[];$('results').replaceChildren();$('status').textContent='Veri alınamadı';$('notice').textContent='Bağlantı, CORS veya servis kısıtlaması: '+err.message+'. Veri uydurulmadı.'}
+}
+
+// Experimental candle-based screening; not the desktop Python MTF 100 formula.
+async function scoreFuturesCandidates(scanId, single){
+ const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:12);
+ if(!candidates.length)return;
+ $('notice').textContent='İlk '+candidates.length+' USDT Futures paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Diğerlerinde skor yok.';
+ let cursor=0,success=0,failed=0;
+ async function worker(){
+  while(cursor<candidates.length&&scanId===requestId){
+   const x=candidates[cursor++];
+   try{
+    const series=await Promise.all(['5m','15m','1h'].map(async interval=>{
+     const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),10000);
+     try{
+      const u='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(x.symbol)+'&interval='+interval+'&limit=80';
+      const response=await fetch(u,{signal:ctrl.signal,cache:'no-store'});
+      if(!response.ok)throw Error('HTTP '+response.status);
+      const data=await response.json();
+      if(!Array.isArray(data))throw Error('Mum formatı');
+      const bars=data.filter(c=>Array.isArray(c)&&Number(c[6])<Date.now()&&Number(c[4])>0&&Number(c[5])>=0);
+      if(bars.length<55)throw Error('Yetersiz mum');
+      return bars;
+     }finally{clearTimeout(timeout)}
+    }));
+    if(scanId!==requestId)return;
+    let score=0;
+    for(const bars of series){
+     const closes=bars.map(c=>Number(c[4])),vols=bars.map(c=>Number(c[5]));
+     const e20=ema(closes,20),e50=ema(closes,50),r=rsi(closes);
+     const avg=vols.slice(-21,-1).reduce((a,b)=>a+b,0)/20;
+     const rv=avg>0?vols.at(-1)/avg:0;
+     const prevHigh=Math.max(...bars.slice(-21,-1).map(c=>Number(c[2])));
+     const last=closes.at(-1);
+     score+=(e20>e50?12:0)+(last>e20?6:0)+(r>=50&&r<=70?5:0)+(rv>=1.8?5:0)+(last>=prevHigh*.98?5:0);
+    }
+    x.score=Math.min(100,score+1);success++;
+   }catch(_){failed++}
+   if(scanId!==requestId)return;
+   render();
+   $('status').textContent='MTF ön tarama: '+(success+failed)+'/'+candidates.length+' | Puanlı: '+success+' | Hata: '+failed;
+  }
+ }
+ await Promise.all(Array.from({length:3},()=>worker()));
+ if(scanId!==requestId)return;
+ $('notice').textContent='Deneysel MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi. Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
 }
 
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let e=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(const v of values.slice(period))e=v*k+e*(1-k);return e}
