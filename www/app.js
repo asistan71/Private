@@ -94,17 +94,32 @@ async function analyzeBistSymbol(symbol){
  return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:diagnostic.HacimOran,volumeStatus:diagnostic.HacimOran<1?'ORTALAMA ALTI':'ORTALAMA USTU',stale:agesByTf['1H']>180},latest,agesByTf};
 }
 function csvCell(value){const s=String(value??'');return '"'+s.replace(/"/g,'""')+'"'}
-$('exportBistReport').addEventListener('click',()=>{
- if(!bistPilotReport)return;
- const report=bistPilotReport;
- const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','HacimDurumu','SaatlikMumYasiDakika','EskiVeri'];
- const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.volumeStatus,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
- const metadata=[['TaramaZamani',report.at],['HedefHisse',report.selectedCount],['Basarili',report.success],['Hata',report.errors],['SureSaniye',report.seconds],['Durum',report.stoppedForErrors?'Uc ardisik hata nedeniyle durdu':'Tamamlandi']];
- const lines=[...metadata.map(r=>r.map(csvCell).join(';')),'',header.map(csvCell).join(';'),...records.map(r=>r.map(csvCell).join(';')),'','BasarisizHisse;Hata',...report.failures.map(x=>[x.symbol,x.reason].map(csvCell).join(';'))];
- const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
- const url=URL.createObjectURL(blob),a=document.createElement('a');
- a.href=url;a.download='bist-pilot-'+report.selectedCount+'-'+report.at.slice(0,10)+'.csv';
- document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+$('exportBistReport').addEventListener('click',async()=>{
+ if(!bistPilotReport){$('notice').textContent='Önce BIST pilot taramasını tamamlayın.';return}
+ const button=$('exportBistReport');button.disabled=true;
+ try{
+  const report=bistPilotReport;
+  const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','HacimDurumu','SaatlikMumYasiDakika','EskiVeri'];
+  const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.volumeStatus,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
+  const metadata=[['TaramaZamani',report.at],['HedefHisse',report.selectedCount],['Basarili',report.success],['Hata',report.errors],['SureSaniye',report.seconds],['Durum',report.stoppedForErrors?'Uc ardisik hata nedeniyle durdu':'Tamamlandi']];
+  const lines=[...metadata.map(r=>r.map(csvCell).join(';')),'',header.map(csvCell).join(';'),...records.map(r=>r.map(csvCell).join(';')),'','BasarisizHisse;Hata',...report.failures.map(x=>[x.symbol,x.reason].map(csvCell).join(';'))];
+  const csv='\uFEFF'+lines.join('\r\n');
+  const name='bist-pilot-'+report.selectedCount+'-'+report.at.slice(0,10)+'.csv';
+  const plugins=globalThis.Capacitor?.Plugins;
+  if(globalThis.Capacitor?.isNativePlatform?.()&&plugins?.Filesystem&&plugins?.Share){
+   const saved=await plugins.Filesystem.writeFile({path:name,data:csv,directory:'CACHE',encoding:'utf8'});
+   await plugins.Share.share({title:'BIST tarama CSV raporu',text:'Piyasa Terminali '+report.selectedCount+' hisse raporu',url:saved.uri,dialogTitle:'CSV raporunu kaydet veya paylaş'});
+   $('notice').textContent='CSV raporu hazırlandı: '+name+'. Paylaş ekranından Dosyalar veya Drive ile kaydedebilirsiniz.';
+  }else{
+   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+   const url=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=url;a.download=name;document.body.append(a);a.click();a.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),30000);
+   $('notice').textContent='CSV indirme başlatıldı: '+name;
+  }
+ }catch(e){
+  $('notice').textContent='CSV dışa aktarılamadı: '+(e?.message||String(e))+'. Rapor bellekte korunuyor; tekrar deneyebilirsiniz.';
+ }finally{button.disabled=false}
 });
 async function scanBistPilot(){
  const stop=$('stopBistScan'),progress=$('bistProgress');stop.hidden=false;progress.hidden=false;progress.value=0;stop.disabled=false;
