@@ -3,7 +3,6 @@ const demo=[];
 let pythonApiUrl='';
 try{pythonApiUrl=localStorage.getItem('pt-python-api-url')||''}catch(_){}
 let pythonApiToken='';
-let istfinKey=''; // Oturumluk; cihazda kalıcı saklanmaz.
 
 const $=id=>document.getElementById(id);
 let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0,detailRequestId=0;
@@ -11,10 +10,6 @@ let favorites={};
 try{favorites=JSON.parse(localStorage.getItem('pt-favorites-v1')||'{}')||{}}catch(_){favorites={}}
 const favoriteKey=s=>market+':'+s;
 $('pythonApiUrl').value=pythonApiUrl;
-$('saveIstfinKey').addEventListener('click',()=>{
- istfinKey=$('istfinKey').value.trim();
- $('notice').textContent=istfinKey?'istfin veri anahtarı bu oturum için etkin. THYAO yazıp Tara düğmesine basın.':'BIST veri anahtarı girilmedi; Yahoo Finance sınırlandırması devam edebilir.';
-});
 $('savePythonApi').addEventListener('click',async()=>{const url=$('pythonApiUrl').value.trim().replace(/\/+$/,'');try{const u=new URL(url);if(u.protocol!=='https:')throw Error('HTTPS gerekli');pythonApiUrl=u.origin+u.pathname.replace(/\/+$/,'');pythonApiToken=$('pythonApiToken').value;localStorage.setItem('pt-python-api-url',pythonApiUrl);$('notice').textContent='Python API bağlantısı kontrol ediliyor…';const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);try{const response=await fetch(pythonApiUrl+'/api/health',{headers:pythonApiToken?{'Authorization':'Bearer '+pythonApiToken}:{},signal:ctrl.signal,cache:'no-store'});if(!response.ok)throw Error('HTTP '+response.status);const data=await response.json();if(!data.ok||!Number.isInteger(data.universe))throw Error('Beklenmeyen API yanıtı');$('notice').textContent='Python motoru erişilebilir | '+data.engine+' | BIST evreni: '+data.universe+'. Tek Tara ile veri sağlayıcısını test edin.';$('universe').textContent='Python motoru: '+data.universe+' hisse'}finally{clearTimeout(timer)}}catch(e){$('notice').textContent='Python API bağlantısı doğrulanamadı: '+e.message+'. Sunucu, HTTPS, CORS ve erişim anahtarını kontrol edin.'}});
 
 async function analyzeLocalBist(){
@@ -65,48 +60,9 @@ async function getBistChart(url){
   return await response.json();
  }finally{clearTimeout(timer)}
 }
-async function scanIstfin(symbol){
- const current=++requestId;
- $('status').textContent=symbol+' | istfin BIST mumları alınıyor…';
- try{
-  const raw={};let latest=0;
-  for(const [tf,interval] of [['1W','1w'],['1D','1d'],['1H','1h']]){
-   const url='https://api.istfin.com/v1/bars/'+encodeURIComponent(symbol)+'?interval='+interval+'&limit=240';
-   const http=globalThis.Capacitor?.Plugins?.CapacitorHttp;
-   let payload;
-   if(http?.get){
-    const response=await http.get({url,headers:{Authorization:'Bearer '+istfinKey,Accept:'application/json'},connectTimeout:12000,readTimeout:12000});
-    if(response.status<200||response.status>=300)throw Error(tf+' HTTP '+response.status);
-    payload=typeof response.data==='string'?JSON.parse(response.data):response.data;
-   }else{
-    const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);
-    try{
-     const response=await fetch(url,{headers:{Authorization:'Bearer '+istfinKey},signal:ctrl.signal});
-     if(!response.ok)throw Error(tf+' HTTP '+response.status);
-     payload=await response.json();
-    }finally{clearTimeout(timer)}
-   }
-   if(current!==requestId)return;
-   const bars=payload?.data;
-   if(!Array.isArray(bars))throw Error(tf+' veri biçimi geçersiz');
-   const valid=bars.filter(b=>Number.isFinite(b.t)&&Number.isFinite(b.c)&&Number.isFinite(b.h)&&Number.isFinite(b.l)&&Number.isFinite(b.v)&&b.c>0&&b.v>=0).sort((a,b)=>a.t-b.t);
-   if(valid.length<55)throw Error(tf+' için yeterli kapanmış hacimli mum bulunamadı');
-   const tail=valid.slice(-200);
-   raw[tf]={close:tail.map(b=>b.c),high:tail.map(b=>b.h),low:tail.map(b=>b.l),volume:tail.map(b=>b.v),lastDate:new Date(tail.at(-1).t*1000).toISOString().slice(0,10)};
-   latest=Math.max(latest,tail.at(-1).t);
-  }
-  const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2});
-  if(result.Hata)throw Error(result.Hata);
-  source='local';rows=result.Filtre?[]:[{symbol,price:result.Fiyat,change:result.Degisim,score:result.Puan,scoreType:'local',plan:result}];
-  $('universe').textContent='istfin: '+symbol;render();
-  $('status').textContent=result.Filtre?'Hisse filtreye takıldı':symbol+' | '+result.Puan+'/100';
-  $('notice').textContent='istfin BIST mum verisi; son bar: '+new Date(latest*1000).toLocaleString('tr-TR')+'. '+(result.Filtre?'Filtre: '+result.Filtre+'. ':'')+'Veri gecikmesi aboneliğe bağlıdır; skorun Python ile eşdeğerliği henüz doğrulanmadı.';
- }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST veri hatası';$('notice').textContent='istfin bağlantısı başarısız: '+e.message+'. Anahtar, abonelik, kota ve saatlik mum yetkisini kontrol edin.'}
-}
 async function scanBistDirect(){
  if(market!=='BIST')return;
  const symbol=$('search').value.trim().toUpperCase();
- if(istfinKey&&/^[A-Z0-9]{4,6}$/.test(symbol)){await scanIstfin(symbol);return}
  if(!/^[A-Z0-9]{4,6}$/.test(symbol)){$('notice').textContent='Önce THYAO gibi tek BIST sembolü girin.';return}
  const current=++requestId;
  $('status').textContent=symbol+' doğrudan veri bağlantısı deneniyor…';
