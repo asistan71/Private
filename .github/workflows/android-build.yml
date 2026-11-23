@@ -33,8 +33,28 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Verify APK package before publishing
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK" | tail -n 2
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/aapt" dump badging "$APK" | head -n 8
+          sha256sum "$APK"
+      - name: Create installation instructions
+        run: |
+          cat > android/app/build/outputs/apk/debug/KURULUM.txt <<'EOF'
+          PIYASA TERMINALI - ANDROID KURULUM
+          1. GitHub Actions > Android APK Build > Artifacts bolumunden ZIP dosyasini indirin.
+          2. ZIP arsivini AYIKLAYIN. ZIP dosyasinin adini APK olarak degistirmeyin.
+          3. Arsivin icindeki app-debug.apk dosyasini telefona kopyalayin ve kurun.
+          4. Gerekirse Android'de dosya yoneticisine 'Bilinmeyen uygulamalari yukle' izni verin.
+          5. Daha once yuklenmis ayni uygulama imza uyusmazligi verirse eski surumu kaldirmak gerekebilir.
+          6. Paket ayrisma hatasi devam ederse Android surumunu ve APK boyutunu bildirin.
+          EOF
       - uses: actions/upload-artifact@v4
         with:
           name: piyasa-terminali-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/KURULUM.txt
           if-no-files-found: error
