@@ -81,7 +81,7 @@ async function analyzeBistSymbol(symbol){
 }
 async function scanBistPilot(){
  const current=++requestId;
- rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();
+ rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
  let errors=0,success=0,filtered=0;const failures=[];
  $('notice').textContent='10 hisselik pilot tarama başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
  for(let i=0;i<BIST_PILOT.length;i++){
@@ -165,7 +165,7 @@ async function scanBistDirect(){
   render();$('status').textContent='Deneysel analiz: '+symbol+' | '+result.Puan+'/100';
  }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Doğrudan veri erişilemedi';$('notice').textContent=String(e.message).includes('429')?'BIST veri sağlayıcısı HTTP 429 ile isteği sınırladı. Tuş ve Android bağlantısı çalışıyor ancak Yahoo Finance bu isteğe veri vermiyor. Tekrar tekrar Tara tuşuna basmayın. 631 hisse taraması için uygun veri sağlayıcısı henüz bağlanmadı.':'BIST veri kaynağına erişilemedi: '+e.message+'. Bu durum tuş hatası değildir; canlı veri bağlantısı henüz güvenilir değil.'}
 }
-$('bistDirectScan').addEventListener('click',()=>{const symbol=$('search').value.trim().toUpperCase();if(!/^[A-Z0-9]{4,6}$/.test(symbol)){$('notice').textContent='THYAO gibi sembol girin';return}scanBistTV(symbol)});
+$('bistDirectScan').addEventListener('click',()=>{const symbol=$('search').value.trim().toUpperCase();if(!symbol){$('notice').textContent='Toplu tarama için arama alanını boş bırakıp Tara butonunu kullanın.';return}if(!/^[A-Z0-9]{4,6}$/.test(symbol)){$('notice').textContent='THYAO gibi geçerli bir sembol girin';return}scanBistTV(symbol)});
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
