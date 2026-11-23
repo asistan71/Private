@@ -12,6 +12,37 @@ const favoriteKey=s=>market+':'+s;
 $('pythonApiUrl').value=pythonApiUrl;
 $('savePythonApi').addEventListener('click',async()=>{const url=$('pythonApiUrl').value.trim().replace(/\/+$/,'');try{const u=new URL(url);if(u.protocol!=='https:')throw Error('HTTPS gerekli');pythonApiUrl=u.origin+u.pathname.replace(/\/+$/,'');pythonApiToken=$('pythonApiToken').value;localStorage.setItem('pt-python-api-url',pythonApiUrl);$('notice').textContent='Python API bağlantısı kontrol ediliyor…';const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);try{const response=await fetch(pythonApiUrl+'/api/health',{headers:pythonApiToken?{'Authorization':'Bearer '+pythonApiToken}:{},signal:ctrl.signal,cache:'no-store'});if(!response.ok)throw Error('HTTP '+response.status);const data=await response.json();if(!data.ok||!Number.isInteger(data.universe))throw Error('Beklenmeyen API yanıtı');$('notice').textContent='Python motoru erişilebilir | '+data.engine+' | BIST evreni: '+data.universe+'. Tek Tara ile veri sağlayıcısını test edin.';$('universe').textContent='Python motoru: '+data.universe+' hisse'}finally{clearTimeout(timer)}}catch(e){$('notice').textContent='Python API bağlantısı doğrulanamadı: '+e.message+'. Sunucu, HTTPS, CORS ve erişim anahtarını kontrol edin.'}});
 
+async function analyzeLocalBist(){
+ if(market!=='BIST')return;
+ const file=$('bistJsonFile').files?.[0];
+ if(!file){$('notice').textContent='Önce BIST mum verilerini içeren JSON dosyasını seçin.';return}
+ if(file.size>12*1024*1024){$('notice').textContent='JSON dosyası en fazla 12 MB olabilir.';return}
+ const current=++requestId;
+ $('status').textContent='Android içinde BIST analizi hazırlanıyor…';
+ try{
+  if(!globalThis.BistEngine)throw Error('BIST hesaplama motoru yüklenmedi');
+  const payload=JSON.parse(await file.text());
+  const stocks=payload?.stocks;
+  if(!stocks||typeof stocks!=='object'||Array.isArray(stocks))throw Error('JSON biçimi: {"stocks":{"THYAO":{"1W":{},"1D":{},"1H":{}}}}');
+  const entries=Object.entries(stocks);
+  if(entries.length>700)throw Error('700 sembolden fazlası kabul edilmiyor');
+  let good=0,filtered=0,errors=0;const next=[];
+  for(const [sym,raw] of entries){
+   if(current!==requestId)return;
+   if(!/^[A-Z0-9]{4,6}$/.test(sym)||!raw||typeof raw!=='object'){errors++;continue}
+   const result=BistEngine.score(sym,raw,{minScore:70,confirmedScore:80,riskPercent:2});
+   if(result.Hata){errors++;continue}
+   if(result.Filtre){filtered++;continue}
+   good++;
+   next.push({symbol:sym,price:result.Fiyat,change:result.Degisim,score:result.Puan,scoreType:'local',plan:result});
+  }
+  if(current!==requestId)return;
+  rows=next;source='local';$('universe').textContent='Yerel veri: '+entries.length+' hisse';
+  $('notice').textContent='Cihaz içi BIST hesaplaması | Sonuç: '+good+' | Filtre: '+filtered+' | Hata: '+errors+'. JSON dış kaynaktan yüklenmiştir; veri tazeliği ve canlılığı doğrulanmamıştır.';
+  render();$('status').textContent='Yerel analiz tamamlandı: '+good+' sonuç';
+ }catch(e){if(current!==requestId)return;$('notice').textContent='Yerel BIST analiz hatası: '+e.message;$('status').textContent='Analiz başarısız'}
+}
+$('bistLocalScan').addEventListener('click',analyzeLocalBist);
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
@@ -21,11 +52,11 @@ function render(){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
-  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nSon 5dk mum kapanışı: '+new Date(x.candleTime).toLocaleString('tr-TR')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
+  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nSon 5dk mum kapanışı: '+new Date(x.candleTime).toLocaleString('tr-TR')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&(source==='python'||source==='local')&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı; yatırım tavsiyesi değildir.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
  $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
-function reset(){requestId++;detailRequestId++;$('pythonBridgeSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
+function reset(){requestId++;detailRequestId++;$('pythonBridgeSettings').hidden=market!=='BIST';$('bistLocalSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
 $('favorites').addEventListener('click',()=>{onlyFavorites=!onlyFavorites;$('favorites').classList.toggle('active',onlyFavorites);render()});
 async function scan(single=false){
