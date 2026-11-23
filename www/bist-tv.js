@@ -41,7 +41,7 @@ globalThis.BistTV = (() => {
       const data=item.ser_1?.s;
       if(!Array.isArray(data))continue;
       const bars=data.map(x=>x?.v).filter(v=>Array.isArray(v)&&v.length>=5&&v.slice(0,5).every(Number.isFinite))
-       .map(v=>({ts:v[0],open:v[1],high:v[2],low:v[3],close:v[4],volume:Number.isFinite(v[5])?v[5]:0}));
+       .map(v=>({ts:v[0],open:v[1],high:v[2],low:v[3],close:v[4],volume:Number.isFinite(v[5])&&v[5]>=0?v[5]:null}));
       if(bars.length)out[tf]=bars;
      }
      if((out[tf]?.length||0)>=60){finish();return}
