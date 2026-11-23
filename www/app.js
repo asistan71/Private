@@ -8,7 +8,7 @@ const favoriteKey=s=>market+':'+s;
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
- const filtered=rows.filter(x=>x.symbol.includes(q)&&(x.score===null||x.score>=min)&&(!$('onlyStrong').checked||(x.score!==null&&x.score>=80))&&(!onlyFavorites||favorites[favoriteKey(x.symbol)]));
+ const filtered=rows.filter(x=>x.symbol.includes(q)&&(min===0||(x.score!==null&&x.score>=min))&&(!$('onlyStrong').checked||(x.score!==null&&x.score>=80))&&(!onlyFavorites||favorites[favoriteKey(x.symbol)]));
  $('results').replaceChildren();
  for(const x of filtered){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
@@ -93,7 +93,7 @@ async function analyzeFutures(symbol){
   const intervals=['5m','15m','1h'];
   const series=await Promise.all(intervals.map(async interval=>{
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-   try{const url='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(symbol)+'&interval='+interval+'&limit=100';const response=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!response.ok)throw Error(interval+' HTTP '+response.status);const candles=await response.json();if(!Array.isArray(candles))throw Error(interval+' geçersiz mum verisi');const completed=candles.filter(c=>Array.isArray(c)&&Number(c[6])<Date.now());if(completed.length<55)throw Error(interval+' yetersiz kapanmış mum');return{interval,candles:completed}}finally{clearTimeout(timer)}
+   try{const url='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(symbol)+'&interval='+interval+'&limit=100';const response=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!response.ok)throw Error(interval+' HTTP '+response.status);const candles=await response.json();if(!Array.isArray(candles))throw Error(interval+' geçersiz mum verisi');const completed=candles.filter(c=>Array.isArray(c)&&c.length>=7&&Number.isFinite(Number(c[6]))&&Number(c[6])<Date.now()&&[1,2,3,4,5].every(i=>Number.isFinite(Number(c[i]))&&Number(c[i])>=0)&&Number(c[4])>0);if(completed.length<55)throw Error(interval+' yetersiz veya geçersiz kapanmış mum');return{interval,candles:completed}}finally{clearTimeout(timer)}
   }));
   if(id!==requestId)return;
   const output=series.map(({interval,candles})=>{
