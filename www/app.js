@@ -6,6 +6,7 @@ let pythonApiToken='';
 
 const $=id=>document.getElementById(id);
 let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0,detailRequestId=0;
+let bistPilotReport=null;
 let favorites={};
 try{favorites=JSON.parse(localStorage.getItem('pt-favorites-v1')||'{}')||{}}catch(_){favorites={}}
 const favoriteKey=s=>market+':'+s;
@@ -92,11 +93,25 @@ async function analyzeBistSymbol(symbol){
  if(diagnostic.Hata)throw Error(diagnostic.Hata);
  return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:diagnostic.HacimOran,stale:agesByTf['1H']>180},latest,agesByTf};
 }
+function csvCell(value){const s=String(value??'');return '"'+s.replace(/"/g,'""')+'"'}
+$('exportBistReport').addEventListener('click',()=>{
+ if(!bistPilotReport)return;
+ const report=bistPilotReport;
+ const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','SaatlikMumYasiDakika','EskiVeri'];
+ const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
+ const metadata=[['TaramaZamani',report.at],['HedefHisse',report.selectedCount],['Basarili',report.success],['Hata',report.errors],['SureSaniye',report.seconds],['Durum',report.stoppedForErrors?'Uc ardisik hata nedeniyle durdu':'Tamamlandi']];
+ const lines=[...metadata.map(r=>r.map(csvCell).join(';')),'',header.map(csvCell).join(';'),...records.map(r=>r.map(csvCell).join(';')),'','BasarisizHisse;Hata',...report.failures.map(x=>[x.symbol,x.reason].map(csvCell).join(';'))];
+ const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download='bist-pilot-'+report.selectedCount+'-'+report.at.slice(0,10)+'.csv';
+ document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+});
 async function scanBistPilot(){
  const stop=$('stopBistScan'),progress=$('bistProgress');stop.hidden=false;progress.hidden=false;progress.value=0;stop.disabled=false;
  const selectedCount=Number($('bistPilotSize')?.value)===25?25:10,pilot=BIST_PILOT.slice(0,selectedCount);progress.max=selectedCount;
  const start=performance.now(),metrics=$('bistMetrics');metrics.hidden=false;metrics.textContent='Pilot ölçümü başlatılıyor…';
  const current=++requestId;
+ bistPilotReport=null;$('exportBistReport').disabled=true;
  $('bistFailures').hidden=true;$('bistFailures').open=false;$('bistFailureList').textContent='';
  rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: '+selectedCount+' hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
  let errors=0,success=0,filtered=0,staleCount=0,consecutiveErrors=0,stoppedForErrors=false;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
@@ -108,19 +123,21 @@ async function scanBistPilot(){
    const began=performance.now();const {row,latest,agesByTf}=await analyzeBistSymbol(sym);
    if(current!==requestId)return;
    rows.push(row);success++;consecutiveErrors=0;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason){filtered++;filterReasons[row.filterReason]=(filterReasons[row.filterReason]||0)+1}if(row.stale)staleCount++;if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
-  }catch(e){if(current!==requestId)return;errors++;consecutiveErrors++;failures.push(sym+': '+e.message.slice(0,90));if(consecutiveErrors>=3)stoppedForErrors=true}
+  }catch(e){if(current!==requestId)return;errors++;consecutiveErrors++;failures.push({symbol:sym,reason:e.message.slice(0,180)});if(consecutiveErrors>=3)stoppedForErrors=true}
   progress.value=i+1;render();$('status').textContent=(i+1)+'/'+selectedCount+' tamamlandı | '+success+' veri | '+errors+' hata';metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+(i+1)+' | Hata: '+errors;
   if(stoppedForErrors)break;
   if(i<pilot.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
  }
  if(current!==requestId)return;
  $('bistFailures').hidden=failures.length===0;
- $('bistFailureList').textContent=failures.join('\n');
+ $('bistFailureList').textContent=failures.map(x=>x.symbol+': '+x.reason).join('\n');
  stop.hidden=true;stop.disabled=true;if(!stoppedForErrors)progress.value=selectedCount;
  $('status').textContent=(stoppedForErrors?'Pilot durduruldu (3 ardışık hata): ':'Pilot tamamlandı: ')+success+'/'+selectedCount;
- const total=Math.round((performance.now()-start)/1000),avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
+ const total=Math.round((performance.now()-start)/1000);
+ bistPilotReport={at:new Date().toISOString(),selectedCount,success,errors,seconds:total,stoppedForErrors,rows:rows.map(x=>({...x})),failures:[...failures]};$('exportBistReport').disabled=false;
+ const avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
  metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/10 ('+Math.round(success*10)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | Saatlik mum yaşı (maks): '+(oldestHourly??'—')+' dk | Ortalama RVOL: '+(meanVol??'—')+'x';
- $('notice').textContent='Pilot '+selectedCount+' hisse | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. '+(stoppedForErrors?'Üç ardışık veri hatası nedeniyle sağlayıcıyı korumak için tarama erken durduruldu. ':'')+'RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
+ $('notice').textContent='Pilot '+selectedCount+' hisse | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. '+(stoppedForErrors?'Üç ardışık veri hatası nedeniyle sağlayıcıyı korumak için tarama erken durduruldu. ':'')+'RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).map(x=>x.symbol+': '+x.reason).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
 }
 $('stopBistScan').addEventListener('click',()=>{
  requestId++;
