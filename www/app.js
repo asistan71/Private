@@ -287,6 +287,6 @@ async function analyzeFutures(symbol){
  }catch(err){if(id===detailRequestId)detail.textContent='MTF ön analizi alınamadı: '+err.message}
 }
 
-$('scan').addEventListener('click',()=>scan(false));$('single').addEventListener('click',()=>scan(true));
+$('scan').addEventListener('click',()=>scan(false));
 $('pythonBridgeSettings').hidden=false;
 $('search').addEventListener('input',render);$('minScore').addEventListener('input',render);$('onlyStrong').addEventListener('change',render);
