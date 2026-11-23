@@ -79,9 +79,8 @@ async function analyzeBistSymbol(symbol){
  for(const tf of ['1W','1D','1H']){
   const bars=histories[tf];
   if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
-  const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
   const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&bistBarClosed(b,tf));
-  if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
+  if(closed.length<55)throw Error(tf+' geçerli hacimli kapanmış mum yetersiz: '+closed.length+' (eksik hacim verisi sıfır kabul edilmez)');
   const tail=closed.slice(-200);
   raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
   latest=Math.max(latest,tail.at(-1).ts);
@@ -141,7 +140,7 @@ async function scanBistTV(symbol){
    if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
    const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
    const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&bistBarClosed(b,tf));
-   if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
+   if(closed.length<55)throw Error(tf+' geçerli hacimli kapanmış mum yetersiz: '+closed.length+' (eksik hacim verisi sıfır kabul edilmez)');
    const tail=closed.slice(-200);
    raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
    latest=Math.max(latest,tail.at(-1).ts);
