@@ -15,7 +15,7 @@ $('savePythonApi').addEventListener('click',()=>{const url=$('pythonApiUrl').val
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
- const filtered=rows.filter(x=>x.symbol.includes(q)&&(min===0||(x.score!==null&&x.score>=min))&&(!$('onlyStrong').checked||(x.score!==null&&x.score>=80))&&(!onlyFavorites||favorites[favoriteKey(x.symbol)]));
+ const filtered=rows.filter(x=>x.symbol.includes(q)&&(min===0||(x.score!==null&&x.score>=min))&&(!$('onlyStrong').checked||(x.score!==null&&x.score>=80))&&(!onlyFavorites||favorites[favoriteKey(x.symbol)])).sort((a,b)=>(b.score??-1)-(a.score??-1)||(b.quoteVolume??0)-(a.quoteVolume??0));
  $('results').replaceChildren();
  for(const x of filtered){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
@@ -23,7 +23,7 @@ function render(){
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
   tr.addEventListener('click',()=>{if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
- $('status').textContent=filtered.length+' '+((source==='live'||source==='python')?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
+ $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
 function reset(){requestId++;detailRequestId++;$('pythonBridgeSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
