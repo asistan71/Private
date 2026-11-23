@@ -60,6 +60,32 @@ async function getBistChart(url){
   return await response.json();
  }finally{clearTimeout(timer)}
 }
+async function scanBistTV(symbol){
+ const current=++requestId;
+ $('status').textContent=symbol+' | TradingView ücretsiz BIST mumları alınıyor…';
+ try{
+  if(!globalThis.BistTV)throw Error('TradingView veri modülü yüklenmedi');
+  const histories=await BistTV.fetchHistory(symbol);
+  if(current!==requestId)return;
+  const raw={};let latest=0;
+  for(const tf of ['1W','1D','1H']){
+   const bars=histories[tf];
+   if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
+   const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
+   const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&b.ts*1000+seconds*1000<=Date.now());
+   if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
+   const tail=closed.slice(-200);
+   raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
+   latest=Math.max(latest,tail.at(-1).ts);
+  }
+  const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2});
+  if(result.Hata)throw Error(result.Hata);
+  rows=result.Filtre?[]:[{symbol,price:result.Fiyat,change:result.Degisim,score:result.Puan,scoreType:'local',plan:result}];
+  source='local';$('universe').textContent='TradingView: '+symbol;render();
+  $('status').textContent=result.Filtre?'Filtrelenen: '+symbol:'BIST '+symbol+' | '+result.Puan+'/100';
+  $('notice').textContent='TradingView ücretsiz gecikmeli veri denemesi. Son mum: '+new Date(latest*1000).toLocaleString('tr-TR')+'. '+(result.Filtre?'Filtre: '+result.Filtre+'. ':'')+'Orijinal Python skor eşdeğerliği doğrulanmadı.';
+ }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST WebSocket veri hatası';$('notice').textContent='TradingView BIST veri denemesi başarısız: '+e.message+'. Bu bağlantı henüz cihazda doğrulanmadı.'}
+}
 async function scanBistDirect(){
  if(market!=='BIST')return;
  const symbol=$('search').value.trim().toUpperCase();
@@ -97,7 +123,7 @@ async function scanBistDirect(){
   render();$('status').textContent='Deneysel analiz: '+symbol+' | '+result.Puan+'/100';
  }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Doğrudan veri erişilemedi';$('notice').textContent=String(e.message).includes('429')?'BIST veri sağlayıcısı HTTP 429 ile isteği sınırladı. Tuş ve Android bağlantısı çalışıyor ancak Yahoo Finance bu isteğe veri vermiyor. Tekrar tekrar Tara tuşuna basmayın. 631 hisse taraması için uygun veri sağlayıcısı henüz bağlanmadı.':'BIST veri kaynağına erişilemedi: '+e.message+'. Bu durum tuş hatası değildir; canlı veri bağlantısı henüz güvenilir değil.'}
 }
-$('bistDirectScan').addEventListener('click',scanBistDirect);
+$('bistDirectScan').addEventListener('click',()=>{const symbol=$('search').value.trim().toUpperCase();if(!/^[A-Z0-9]{4,6}$/.test(symbol)){$('notice').textContent='THYAO gibi sembol girin';return}scanBistTV(symbol)});
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
@@ -120,7 +146,7 @@ async function scan(single=false){
  const current=++requestId;detailRequestId++;
  if(market==='BIST'){
   if(!pythonApiUrl){
-   if(symbol){await scanBistDirect();return}
+   if(symbol){await scanBistTV(symbol);return}
    rows=[];source='demo';render();
    $('status').textContent='Toplu BIST veri kaynağı bekleniyor';
    $('notice').textContent='631 hissenin toplu canlı taraması henüz bağlı değil. Arama alanına THYAO gibi bir sembol yazıp Tara ile Android doğrudan veri bağlantısını deneyebilirsiniz. Python API isteğe bağlıdır.';
