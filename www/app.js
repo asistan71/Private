@@ -60,6 +60,19 @@ async function getBistChart(url){
   return await response.json();
  }finally{clearTimeout(timer)}
 }
+// TradingView daily/weekly timestamps mark the bar START, not its close.
+// Evaluate daily closure against the Borsa Istanbul session end (18:15 TR).
+function bistBarClosed(bar,tf,now=Date.now()){
+ const start=bar.ts*1000;
+ if(tf==='1H')return start+3600000<=now;
+ const local=new Date(start+3*3600000); // Türkiye fixed UTC+3
+ const y=local.getUTCFullYear(),m=local.getUTCMonth(),d=local.getUTCDate();
+ const dateStart=Date.UTC(y,m,d)-3*3600000;
+ if(tf==='1D')return dateStart+(18*60+15)*60000<=now;
+ const weekday=new Date(Date.UTC(y,m,d)).getUTCDay();
+ const daysToMonday=(8-weekday)%7||7;
+ return dateStart+daysToMonday*86400000<=now;
+}
 const BIST_PILOT=['THYAO','ASELS','TUPRS','BIMAS','AKBNK','GARAN','SISE','EREGL','KCHOL','TAVHL'];
 async function analyzeBistSymbol(symbol){
  const histories=await BistTV.fetchHistory(symbol),raw={};let latest=0;const agesByTf={};
@@ -67,7 +80,7 @@ async function analyzeBistSymbol(symbol){
   const bars=histories[tf];
   if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
   const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
-  const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&b.ts*1000+seconds*1000<=Date.now());
+  const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&bistBarClosed(b,tf));
   if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
   const tail=closed.slice(-200);
   raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
@@ -125,7 +138,7 @@ async function scanBistTV(symbol){
    const bars=histories[tf];
    if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
    const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
-   const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&b.ts*1000+seconds*1000<=Date.now());
+   const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&bistBarClosed(b,tf));
    if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
    const tail=closed.slice(-200);
    raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
