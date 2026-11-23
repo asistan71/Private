@@ -74,9 +74,32 @@ function bistBarClosed(bar,tf,now=Date.now()){
  const daysToMonday=(8-weekday)%7||7;
  return dateStart+daysToMonday*86400000<=now;
 }
+// Seans saatlerine duyarlı tazelik denetimi. Resmî tatiller ve yarım günler
+// takvime bağlı olduğundan burada yalnızca standart hafta içi seansı kullanılır.
+function bistLocalClock(ms){
+ const d=new Date(ms+3*3600000); // Istanbul UTC+3
+ return {date:d.toISOString().slice(0,10),weekday:d.getUTCDay(),minute:d.getUTCHours()*60+d.getUTCMinutes()};
+}
+function bistFreshness(hourlyTs,nowMs=Date.now()){
+ const now=bistLocalClock(nowMs),bar=bistLocalClock(hourlyTs*1000);
+ const isWeekday=now.weekday>=1&&now.weekday<=5;
+ const sessionOpen=isWeekday&&now.minute>=600&&now.minute<1095;
+ const sameDayHourlyAvailable=isWeekday&&now.minute>=660;
+ const expectedDate=new Date(nowMs+3*3600000);
+ if(!sameDayHourlyAvailable)expectedDate.setUTCDate(expectedDate.getUTCDate()-1);
+ while([0,6].includes(expectedDate.getUTCDay()))expectedDate.setUTCDate(expectedDate.getUTCDate()-1);
+ const expected=expectedDate.toISOString().slice(0,10);
+ const ageMinutes=Math.max(0,Math.round((nowMs-hourlyTs*1000)/60000));
+ const invalid=!Number.isFinite(hourlyTs)||hourlyTs*1000>nowMs+60000;
+ const oldSession=bar.date!==expected;
+ const missingHourly=sessionOpen&&sameDayHourlyAvailable&&ageMinutes>180;
+ const missingClose=!sessionOpen&&bar.minute<960;
+ const stale=invalid||oldSession||missingHourly||missingClose;
+ return {stale,sessionOpen,sessionClosed:!sessionOpen,status:stale?'ESKİ VERİ':sessionOpen?'SEANS AÇIK':'SEANS KAPALI',expectedSessionDate:expected};
+}
 const BIST_PILOT=['THYAO','ASELS','TUPRS','BIMAS','AKBNK','GARAN','SISE','EREGL','KCHOL','TAVHL','ISCTR','YKBNK','SAHOL','FROTO','TOASO','TCELL','TTKOM','PGSUS','PETKM','SASA','ENKAI','MGROS','KOZAL','EKGYO','ASTOR'];
 async function analyzeBistSymbol(symbol){
- const histories=await BistTV.fetchHistory(symbol),raw={};let latest=0;const agesByTf={};
+ const histories=await BistTV.fetchHistory(symbol),raw={};let latest=0,hourlyTs=null;const agesByTf={};
  for(const tf of ['1W','1D','1H']){
   const bars=histories[tf];
   if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
@@ -85,8 +108,10 @@ async function analyzeBistSymbol(symbol){
   const tail=closed.slice(-200);
   raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
   latest=Math.max(latest,tail.at(-1).ts);
+  if(tf==='1H')hourlyTs=tail.at(-1).ts;
   agesByTf[tf]=Math.max(0,Math.round((Date.now()/1000-tail.at(-1).ts)/60));
  }
+ const freshness=bistFreshness(hourlyTs);
  const daily=raw['1D'],dailyVolumes=daily.volume;
  const lastDailyVolume=dailyVolumes.at(-1);
  const previous10DailyVolumes=dailyVolumes.slice(-11,-1);
@@ -96,7 +121,7 @@ async function analyzeBistSymbol(symbol){
  if(result.Hata)throw Error(result.Hata);
  const diagnostic=result.Filtre?BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:true}):result;
  if(diagnostic.Hata)throw Error(diagnostic.Hata);
- return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:dailyVolumeRatioExact,dailyCandleDate:daily.lastDate,lastDailyVolume,average10DailyVolume,volumeSampleDays:previous10DailyVolumes.length,volumeStatus:dailyVolumeRatioExact<1?'ORTALAMA ALTI':'ORTALAMA USTU',stale:agesByTf['1H']>180},latest,agesByTf};
+ return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:agesByTf['1H'],dailyVolumeRatio:dailyVolumeRatioExact,dailyCandleDate:daily.lastDate,lastDailyVolume,average10DailyVolume,volumeSampleDays:previous10DailyVolumes.length,volumeStatus:dailyVolumeRatioExact<1?'ORTALAMA ALTI':'ORTALAMA USTU',stale:freshness.stale,sessionClosed:freshness.sessionClosed,freshnessStatus:freshness.status,expectedSessionDate:freshness.expectedSessionDate},latest,agesByTf};
 }
 function csvCell(value){const s=String(value??'');return '"'+s.replace(/"/g,'""')+'"'}
 $('exportBistReport').addEventListener('click',async()=>{
@@ -104,8 +129,8 @@ $('exportBistReport').addEventListener('click',async()=>{
  const button=$('exportBistReport');button.disabled=true;
  try{
   const report=bistPilotReport;
-  const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','GunlukMumTarihi','SonGunlukHacim','Onceki10GunOrtHacim','HacimOrnekGun','HacimDurumu','SaatlikMumYasiDakika','EskiVeri'];
-  const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.dailyCandleDate,x.lastDailyVolume,x.average10DailyVolume,x.volumeSampleDays,x.volumeStatus,x.barAgeMinutes,x.stale?'Evet':'Hayir']);
+  const header=['Sembol','Fiyat','DegisimYuzde','Puan','Filtre','GunlukRVOL','GunlukMumTarihi','SonGunlukHacim','Onceki10GunOrtHacim','HacimOrnekGun','HacimDurumu','SaatlikMumYasiDakika','VeriDurumu','BeklenenSeansTarihi','EskiVeri'];
+  const records=report.rows.map(x=>[x.symbol,x.price,x.change,x.score,x.filterReason,x.dailyVolumeRatio,x.dailyCandleDate,x.lastDailyVolume,x.average10DailyVolume,x.volumeSampleDays,x.volumeStatus,x.barAgeMinutes,x.freshnessStatus||'',x.expectedSessionDate||'',x.stale?'Evet':'Hayir']);
   const metadata=[['TaramaZamani',report.at],['HedefHisse',report.selectedCount],['Basarili',report.success],['Hata',report.errors],['SureSaniye',report.seconds],['Durum',report.stoppedForErrors?'Uc ardisik hata nedeniyle durdu':'Tamamlandi']];
   const lines=[...metadata.map(r=>r.map(csvCell).join(';')),'',header.map(csvCell).join(';'),...records.map(r=>r.map(csvCell).join(';')),'','BasarisizHisse;Hata',...report.failures.map(x=>[x.symbol,x.reason].map(csvCell).join(';'))];
   const csv='\uFEFF'+lines.join('\r\n');
@@ -134,30 +159,57 @@ async function scanBistPilot(){
  bistPilotReport=null;$('exportBistReport').disabled=true;
  $('bistFailures').hidden=true;$('bistFailures').open=false;$('bistFailureList').textContent='';
  rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: '+selectedCount+' hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
- let errors=0,success=0,filtered=0,staleCount=0,consecutiveErrors=0,stoppedForErrors=false;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
- $('notice').textContent='Pilot '+selectedCount+' hisse taraması başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
- for(let i=0;i<pilot.length;i++){
-  if(current!==requestId||market!=='BIST')return;
-  const sym=pilot[i];$('status').textContent=(i+1)+'/'+selectedCount+' | '+sym+' alınıyor…';
-  try{
-   const began=performance.now();const {row,latest,agesByTf}=await analyzeBistSymbol(sym);
-   if(current!==requestId)return;
-   rows.push(row);success++;consecutiveErrors=0;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason){filtered++;filterReasons[row.filterReason]=(filterReasons[row.filterReason]||0)+1}if(row.stale)staleCount++;if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
-  }catch(e){if(current!==requestId)return;errors++;consecutiveErrors++;failures.push({symbol:sym,reason:e.message.slice(0,180)});if(consecutiveErrors>=3)stoppedForErrors=true}
-  progress.value=i+1;render();$('status').textContent=(i+1)+'/'+selectedCount+' tamamlandı | '+success+' veri | '+errors+' hata';metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+(i+1)+' | Hata: '+errors;
-  if(stoppedForErrors)break;
-  if(i<pilot.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
+ let errors=0,success=0,filtered=0,staleCount=0,closedCount=0,consecutiveErrors=0,stoppedForErrors=false,processed=0,nextIndex=0;
+ const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
+ const workerCount=2; // En fazla iki eşzamanlı WebSocket: aynı toplam istek, daha az bekleme.
+ $('notice').textContent='Pilot '+selectedCount+' hisse: iki kontrollü işçi ile tarama başladı. Bu 631 hisse taraması değildir.';
+ async function worker(){
+  while(nextIndex<pilot.length&&!stoppedForErrors){
+   if(current!==requestId||market!=='BIST')return;
+   const sym=pilot[nextIndex++];
+   $('status').textContent='Taranıyor: '+sym+' | '+processed+'/'+selectedCount+' tamamlandı';
+   try{
+    const began=performance.now();
+    const {row,latest,agesByTf}=await analyzeBistSymbol(sym);
+    if(current!==requestId||market!=='BIST')return;
+    rows.push(row);success++;consecutiveErrors=0;
+    latencies.push(Math.round(performance.now()-began));
+    if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));
+    if(row.filterReason){filtered++;filterReasons[row.filterReason]=(filterReasons[row.filterReason]||0)+1}
+    if(row.stale)staleCount++;
+    if(row.sessionClosed)closedCount++;
+    if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);
+    if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
+   }catch(e){
+    if(current!==requestId||market!=='BIST')return;
+    errors++;consecutiveErrors++;
+    failures.push({symbol:sym,reason:String(e?.message||e).slice(0,180)});
+    if(consecutiveErrors>=3)stoppedForErrors=true;
+   }
+   processed++;
+   progress.value=processed;render();
+   $('status').textContent=processed+'/'+selectedCount+' tamamlandı | '+success+' veri | '+errors+' hata';
+   metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+processed+' | Hata: '+errors;
+   if(stoppedForErrors||nextIndex>=pilot.length)break;
+   // İki işçi toplamda iki eşzamanlı bağlantıyı geçmez; sağlayıcıyı zorlamamak için mola.
+   await new Promise(resolve=>setTimeout(resolve,1200));
+  }
  }
- if(current!==requestId)return;
+ await Promise.all(Array.from({length:workerCount},()=>worker()));
+ if(current!==requestId||market!=='BIST')return;
  $('bistFailures').hidden=failures.length===0;
  $('bistFailureList').textContent=failures.map(x=>x.symbol+': '+x.reason).join('\n');
  stop.hidden=true;stop.disabled=true;if(!stoppedForErrors)progress.value=selectedCount;
  $('status').textContent=(stoppedForErrors?'Pilot durduruldu (3 ardışık hata): ':'Pilot tamamlandı: ')+success+'/'+selectedCount;
  const total=Math.round((performance.now()-start)/1000);
- bistPilotReport={at:new Date().toISOString(),selectedCount,success,errors,seconds:total,stoppedForErrors,rows:rows.map(x=>({...x})),failures:[...failures]};$('exportBistReport').disabled=false;
- const avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
- metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/10 ('+Math.round(success*10)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | Saatlik mum yaşı (maks): '+(oldestHourly??'—')+' dk | Ortalama RVOL: '+(meanVol??'—')+'x';
- $('notice').textContent='Pilot '+selectedCount+' hisse | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. '+(stoppedForErrors?'Üç ardışık veri hatası nedeniyle sağlayıcıyı korumak için tarama erken durduruldu. ':'')+'RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).map(x=>x.symbol+': '+x.reason).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
+ const orderedRows=[...rows].sort((a,b)=>pilot.indexOf(a.symbol)-pilot.indexOf(b.symbol));
+ bistPilotReport={at:new Date().toISOString(),selectedCount,success,errors,seconds:total,stoppedForErrors,rows:orderedRows.map(x=>({...x})),failures:[...failures]};
+ $('exportBistReport').disabled=false;
+ const avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null;
+ const oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null;
+ const meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
+ metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/'+selectedCount+' ('+Math.round(success/selectedCount*100)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | Saatlik mum yaşı (maks): '+(oldestHourly??'—')+' dk | Ortalama RVOL: '+(meanVol??'—')+'x';
+ $('notice').textContent='Pilot '+selectedCount+' hisse | veri: '+success+' | filtrelenen: '+filtered+' | gerçek eski veri: '+staleCount+' | seans kapalı: '+closedCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. '+(stoppedForErrors?'Üç ardışık veri hatasında tarama durduruldu. ':'')+'Borsa kapalıyken son kapanış mumu 180 dk sınırına takılmaz; seans kapalı veriler canlı sinyal değildir. Resmî tatil ve yarım gün takvimi dahil değildir. RVOL eşiği 1,00x ve puanlama değişmedi. '+(failures.length?'Hatalar: '+failures.slice(0,3).map(x=>x.symbol+': '+x.reason).join(' ; '):'')+' Ücretsiz sağlayıcıda sonuç garantisi yoktur.';
 }
 $('stopBistScan').addEventListener('click',()=>{
  requestId++;
@@ -174,7 +226,7 @@ async function scanBistTV(symbol){
   if(!globalThis.BistTV)throw Error('TradingView veri modülü yüklenmedi');
   const histories=await BistTV.fetchHistory(symbol);
   if(current!==requestId)return;
-  const raw={};let latest=0;
+  const raw={};let latest=0,hourlyTs=null;
   for(const tf of ['1W','1D','1H']){
    const bars=histories[tf];
    if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
@@ -184,16 +236,18 @@ async function scanBistTV(symbol){
    const tail=closed.slice(-200);
    raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
    latest=Math.max(latest,tail.at(-1).ts);
+   if(tf==='1H')hourlyTs=tail.at(-1).ts;
   }
+  const freshness=bistFreshness(hourlyTs);
   const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2});
   if(result.Hata)throw Error(result.Hata);
   // Show filtered symbols without turning them into actionable trade signals.
   const diagnostic=result.Filtre?BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:true}):result;
   if(diagnostic.Hata)throw Error(diagnostic.Hata);
-  rows=[{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:Math.max(0,Math.round((Date.now()/1000-latest)/60)),stale:Date.now()/1000-latest>180*60}];
+  rows=[{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||'',barAgeMinutes:Math.max(0,Math.round((Date.now()/1000-hourlyTs)/60)),stale:freshness.stale,sessionClosed:freshness.sessionClosed,freshnessStatus:freshness.status,expectedSessionDate:freshness.expectedSessionDate}];
   source='local';$('universe').textContent='TradingView: '+symbol;render();
   $('status').textContent=result.Filtre?'Filtrelenen: '+symbol+' | '+diagnostic.Puan+'/100':'BIST '+symbol+' | '+result.Puan+'/100';
-  $('notice').textContent='TradingView gecikmeli veri. Son mum: '+new Date(latest*1000).toLocaleString('tr-TR')+'. '+(result.Filtre?'Filtre: '+result.Filtre+'. Puan yalnızca teşhis amaçlıdır; AL sinyali değildir. ':'')+'Orijinal Python skor eşdeğerliği doğrulanmadı.';
+  $('notice').textContent='TradingView gecikmeli veri. Son mum: '+new Date(latest*1000).toLocaleString('tr-TR')+'. '+(result.Filtre?'Filtre: '+result.Filtre+'. Puan yalnızca teşhis amaçlıdır; AL sinyali değildir. ':'')+'Seans durumu: '+freshness.status+'. Orijinal Python skor eşdeğerliği doğrulanmadı.';
  }catch(e){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST WebSocket veri hatası';$('notice').textContent='TradingView BIST veri denemesi başarısız: '+e.message+'. Bu bağlantı henüz cihazda doğrulanmadı.'}
 }
 async function scanBistDirect(){
@@ -242,8 +296,8 @@ function render(){
  for(const x of filtered){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
-  [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),x.filterReason?'Filtre: '+x.filterReason:x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
-  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nSon 5dk mum kapanışı: '+new Date(x.candleTime).toLocaleString('tr-TR')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&(source==='python'||source==='local')&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+(x.filterReason?'FİLTRELENDİ: '+x.filterReason:p.Sinyal)+' | Puan: '+p.Puan,(x.filterReason?'Giriş / Stop / TP: filtre nedeniyle işlem planı etkin değil':'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—')),'RSI: '+(p.RSI??'—')+' | Günlük RVOL: '+(p.HacimOran??'—')+'x | '+(x.volumeStatus||'Hacim durumu bilinmiyor'),'Saatlik son mum yaşı: '+(x.barAgeMinutes??'—')+' dk'+(x.stale?' | ESKİ VERİ: sinyal olarak kullanma':''),'Filtrelenen puanlar teşhis amaçlıdır; yatırım tavsiyesi değildir.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
+  [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),(x.filterReason?'Filtre: '+x.filterReason:x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle'))+(x.stale?' | ESKİ VERİ':x.sessionClosed?' | SEANS KAPALI':'')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
+  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nSon 5dk mum kapanışı: '+new Date(x.candleTime).toLocaleString('tr-TR')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&(source==='python'||source==='local')&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+(x.filterReason?'FİLTRELENDİ: '+x.filterReason:x.stale?'ESKİ VERİ':x.sessionClosed?'SEANS KAPALI / TAKİP':p.Sinyal)+' | Puan: '+p.Puan,((x.filterReason||x.stale||x.sessionClosed)?'Giriş / Stop / TP: filtre, seans durumu veya veri tazeliği nedeniyle işlem planı etkin değil':'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—')),'RSI: '+(p.RSI??'—')+' | Günlük RVOL: '+(p.HacimOran??'—')+'x | '+(x.volumeStatus||'Hacim durumu bilinmiyor'),'Saatlik son mum yaşı: '+(x.barAgeMinutes??'—')+' dk | '+(x.freshnessStatus||'Durum bilinmiyor')+(x.sessionClosed?' | Canlı işlem sinyali değil':''),'Filtrelenen puanlar teşhis amaçlıdır; yatırım tavsiyesi değildir.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
  $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
