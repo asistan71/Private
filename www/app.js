@@ -67,7 +67,7 @@ async function scanBistDirect(){
    // Weekly bars are anchored to the exchange week, not seven days after Yahoo's timestamp.
    // Use the previous weekly bar; daily/hourly require a full nominal interval.
    const seconds={'1D':86400,'1H':3600}[tf];
-   const completed=tf==='1W'?candles.slice(0,-1):candles.filter(x=>x.ts*1000+seconds*1000<=Date.now());
+   const completed=tf==='1W'?candles.filter(x=>{const d=new Date(x.ts*1000),utcDay=d.getUTCDay(),daysToNextMonday=(8-utcDay)%7||7;return x.ts*1000+daysToNextMonday*86400000<=Date.now()}):candles.filter(x=>x.ts*1000+seconds*1000<=Date.now());
    if(completed.length<55)throw Error(tf+' için kapanmış mum yetersiz');
    const tail=completed.slice(-200);
    raw[tf]={close:tail.map(x=>x.close),high:tail.map(x=>x.high),low:tail.map(x=>x.low),volume:tail.map(x=>x.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
