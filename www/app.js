@@ -73,7 +73,7 @@ function bistBarClosed(bar,tf,now=Date.now()){
  const daysToMonday=(8-weekday)%7||7;
  return dateStart+daysToMonday*86400000<=now;
 }
-const BIST_PILOT=['THYAO','ASELS','TUPRS','BIMAS','AKBNK','GARAN','SISE','EREGL','KCHOL','TAVHL'];
+const BIST_PILOT=['THYAO','ASELS','TUPRS','BIMAS','AKBNK','GARAN','SISE','EREGL','KCHOL','TAVHL','ISCTR','YKBNK','SAHOL','FROTO','TOASO','TCELL','TTKOM','PGSUS','PETKM','SASA','ENKAI','MGROS','KOZAL','EKGYO','ASTOR'];
 async function analyzeBistSymbol(symbol){
  const histories=await BistTV.fetchHistory(symbol),raw={};let latest=0;const agesByTf={};
  for(const tf of ['1W','1D','1H']){
@@ -95,28 +95,29 @@ async function analyzeBistSymbol(symbol){
 }
 async function scanBistPilot(){
  const stop=$('stopBistScan'),progress=$('bistProgress');stop.hidden=false;progress.hidden=false;progress.value=0;stop.disabled=false;
+ const selectedCount=Number($('bistPilotSize')?.value)===25?25:10,pilot=BIST_PILOT.slice(0,selectedCount);progress.max=selectedCount;
  const start=performance.now(),metrics=$('bistMetrics');metrics.hidden=false;metrics.textContent='Pilot ölçümü başlatılıyor…';
  const current=++requestId;
- rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
+ rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: '+selectedCount+' hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
  let errors=0,success=0,filtered=0,staleCount=0;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
- $('notice').textContent='10 hisselik pilot tarama başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
- for(let i=0;i<BIST_PILOT.length;i++){
+ $('notice').textContent='Pilot '+selectedCount+' hisse taraması başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
+ for(let i=0;i<pilot.length;i++){
   if(current!==requestId||market!=='BIST')return;
-  const sym=BIST_PILOT[i];$('status').textContent=(i+1)+'/10 | '+sym+' alınıyor…';
+  const sym=pilot[i];$('status').textContent=(i+1)+'/'+selectedCount+' | '+sym+' alınıyor…';
   try{
    const began=performance.now();const {row,latest,agesByTf}=await analyzeBistSymbol(sym);
    if(current!==requestId)return;
    rows.push(row);success++;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason){filtered++;filterReasons[row.filterReason]=(filterReasons[row.filterReason]||0)+1}if(row.stale)staleCount++;if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
   }catch(e){if(current!==requestId)return;errors++;failures.push(sym+': '+e.message.slice(0,90))}
   progress.value=i+1;render();$('status').textContent=(i+1)+'/10 tamamlandı | '+success+' veri | '+errors+' hata';metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+(i+1)+' | Hata: '+errors;
-  if(i<BIST_PILOT.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
+  if(i<pilot.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
  }
  if(current!==requestId)return;
- stop.hidden=true;stop.disabled=true;progress.value=10;
- $('status').textContent='Pilot tamamlandı: '+success+'/10';
+ stop.hidden=true;stop.disabled=true;progress.value=selectedCount;
+ $('status').textContent='Pilot tamamlandı: '+success+'/'+selectedCount;
  const total=Math.round((performance.now()-start)/1000),avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
  metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/10 ('+Math.round(success*10)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | Saatlik mum yaşı (maks): '+(oldestHourly??'—')+' dk | Ortalama RVOL: '+(meanVol??'—')+'x';
- $('notice').textContent='10 hisse pilotu | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
+ $('notice').textContent='Pilot '+selectedCount+' hisse | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
 }
 $('stopBistScan').addEventListener('click',()=>{
  requestId++;
@@ -206,7 +207,7 @@ function render(){
  }
  $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
-function reset(){requestId++;$('stopBistScan').hidden=true;$('bistProgress').hidden=true;$('bistMetrics').hidden=true;detailRequestId++;$('pythonBridgeSettings').hidden=market!=='BIST';$('bistLocalSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST ücretsiz TradingView verisi tek hisse ve 10 hisse pilotunda kullanılabilir. Veriler gecikmeli olabilir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
+function reset(){requestId++;$('stopBistScan').hidden=true;$('bistProgress').hidden=true;$('bistMetrics').hidden=true;detailRequestId++;$('bistPilotControls').hidden=market!=='BIST';$('pythonBridgeSettings').hidden=market!=='BIST';$('bistLocalSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST ücretsiz TradingView verisi tek hisse ve 10 hisse pilotunda kullanılabilir. Veriler gecikmeli olabilir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
 $('favorites').addEventListener('click',()=>{onlyFavorites=!onlyFavorites;$('favorites').classList.toggle('active',onlyFavorites);render()});
 async function scan(single=false){
