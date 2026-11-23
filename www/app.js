@@ -98,7 +98,7 @@ async function scanBistPilot(){
  const start=performance.now(),metrics=$('bistMetrics');metrics.hidden=false;metrics.textContent='Pilot ölçümü başlatılıyor…';
  const current=++requestId;
  rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
- let errors=0,success=0,filtered=0,staleCount=0;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[];
+ let errors=0,success=0,filtered=0,staleCount=0;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
  $('notice').textContent='10 hisselik pilot tarama başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
  for(let i=0;i<BIST_PILOT.length;i++){
   if(current!==requestId||market!=='BIST')return;
@@ -106,7 +106,7 @@ async function scanBistPilot(){
   try{
    const began=performance.now();const {row,latest,agesByTf}=await analyzeBistSymbol(sym);
    if(current!==requestId)return;
-   rows.push(row);success++;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason)filtered++;if(row.stale)staleCount++;if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
+   rows.push(row);success++;latencies.push(Math.round(performance.now()-began));if(Number.isFinite(latest))ages.push(Math.max(0,Math.round((Date.now()/1000-latest)/60)));if(row.filterReason){filtered++;filterReasons[row.filterReason]=(filterReasons[row.filterReason]||0)+1}if(row.stale)staleCount++;if(Number.isFinite(row.dailyVolumeRatio))volumeRatios.push(row.dailyVolumeRatio);if(Number.isFinite(agesByTf['1H']))hourlyAges.push(agesByTf['1H']);
   }catch(e){if(current!==requestId)return;errors++;failures.push(sym+': '+e.message.slice(0,90))}
   progress.value=i+1;render();$('status').textContent=(i+1)+'/10 tamamlandı | '+success+' veri | '+errors+' hata';metrics.textContent='Süre: '+Math.round((performance.now()-start)/1000)+' sn | Başarı: '+success+'/'+(i+1)+' | Hata: '+errors;
   if(i<BIST_PILOT.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
@@ -116,7 +116,7 @@ async function scanBistPilot(){
  $('status').textContent='Pilot tamamlandı: '+success+'/10';
  const total=Math.round((performance.now()-start)/1000),avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
  metrics.textContent='Tarama: '+total+' sn | Başarı: '+success+'/10 ('+Math.round(success*10)+'%) | Ortalama/hisse: '+(avg??'—')+' sn | Saatlik mum yaşı (maks): '+(oldestHourly??'—')+' dk | Ortalama RVOL: '+(meanVol??'—')+'x';
- $('notice').textContent='10 hisse pilotu | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Tüm hisseler hacim filtresine takılırsa RVOL ve seans saatleri Python ile karşılaştırılmalıdır. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
+ $('notice').textContent='10 hisse pilotu | veri: '+success+' | filtrelenen: '+filtered+' | eski saatlik veri (>180 dk): '+staleCount+' | hata: '+errors+'. Filtre nedenleri: '+(Object.entries(filterReasons).map(([reason,count])=>reason+' '+count).join(', ')||'yok')+'. RVOL eşiği 1,00x; düşük RVOL otomatik olarak hata anlamına gelmez. Eski veriler işlem sinyali değildir. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
 }
 $('stopBistScan').addEventListener('click',()=>{
  requestId++;
