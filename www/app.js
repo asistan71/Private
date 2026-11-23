@@ -43,6 +43,23 @@ async function analyzeLocalBist(){
  }catch(e){if(current!==requestId)return;$('notice').textContent='Yerel BIST analiz hatası: '+e.message;$('status').textContent='Analiz başarısız'}
 }
 $('bistLocalScan').addEventListener('click',analyzeLocalBist);
+async function getBistChart(url){
+ const nativeHttp=globalThis.Capacitor?.Plugins?.CapacitorHttp;
+ if(nativeHttp?.get){
+  const response=await Promise.race([
+   nativeHttp.get({url,headers:{Accept:'application/json'},connectTimeout:12000,readTimeout:12000}),
+   new Promise((_,reject)=>setTimeout(()=>reject(Error('Android HTTP zaman aşımı')),15000))
+  ]);
+  if(response.status<200||response.status>=300)throw Error('HTTP '+response.status);
+  return typeof response.data==='string'?JSON.parse(response.data):response.data;
+ }
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);
+ try{
+  const response=await fetch(url,{signal:ctrl.signal,cache:'no-store',credentials:'omit'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  return await response.json();
+ }finally{clearTimeout(timer)}
+}
 async function scanBistDirect(){
  if(market!=='BIST')return;
  const symbol=$('search').value.trim().toUpperCase();
@@ -54,10 +71,7 @@ async function scanBistDirect(){
   const raw={};let lastData=0;
   for(const [tf,interval,range] of specs){
    const url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol+'.IS')+'?interval='+interval+'&range='+range;
-   const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);
-   let response;try{response=await fetch(url,{signal:ctrl.signal,cache:'no-store',credentials:'omit'})}finally{clearTimeout(timer)}
-   if(!response.ok)throw Error(tf+' HTTP '+response.status);
-   const body=await response.json(),data=body?.chart?.result?.[0],q=data?.indicators?.quote?.[0];
+   const body=await getBistChart(url),data=body?.chart?.result?.[0],q=data?.indicators?.quote?.[0];
    if(!q||!Array.isArray(data.timestamp))throw Error(tf+' beklenmeyen veri şeması');
    if(data.meta?.symbol&&data.meta.symbol.toUpperCase()!==symbol+'.IS')throw Error(tf+' sembol uyuşmazlığı');
    const candles=data.timestamp.map((ts,i)=>({ts,close:q.close?.[i],high:q.high?.[i],low:q.low?.[i],volume:q.volume?.[i]}))
@@ -105,6 +119,13 @@ async function scan(single=false){
  if(single&&!symbol){$('status').textContent='Önce sembol yazın';return}
  const current=++requestId;detailRequestId++;
  if(market==='BIST'){
+  if(!pythonApiUrl){
+   if(symbol){await scanBistDirect();return}
+   rows=[];source='demo';render();
+   $('status').textContent='Toplu BIST veri kaynağı bekleniyor';
+   $('notice').textContent='631 hissenin toplu canlı taraması henüz bağlı değil. Arama alanına THYAO gibi bir sembol yazıp Tara ile Android doğrudan veri bağlantısını deneyebilirsiniz. Python API isteğe bağlıdır.';
+   return;
+  }
   if(!pythonApiUrl){rows=[];source='demo';$('notice').textContent='Python motoruna bağlanmak için HTTPS API adresini girin. BIST fiyatı ve puanı uydurulmaz.';render();$('status').textContent='Python API bağlantısı gerekli';return}
   $('status').textContent='Python motoru BIST taraması çalışıyor…';
   try{
