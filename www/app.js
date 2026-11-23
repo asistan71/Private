@@ -97,6 +97,7 @@ async function scanBistPilot(){
  const selectedCount=Number($('bistPilotSize')?.value)===25?25:10,pilot=BIST_PILOT.slice(0,selectedCount);progress.max=selectedCount;
  const start=performance.now(),metrics=$('bistMetrics');metrics.hidden=false;metrics.textContent='Pilot ölçümü başlatılıyor…';
  const current=++requestId;
+ $('bistFailures').hidden=true;$('bistFailures').open=false;$('bistFailureList').textContent='';
  rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: '+selectedCount+' hisse';$('detail').textContent='';render();document.querySelector('.tablewrap').scrollLeft=0;
  let errors=0,success=0,filtered=0,staleCount=0,consecutiveErrors=0,stoppedForErrors=false;const failures=[],latencies=[],ages=[],hourlyAges=[],volumeRatios=[],filterReasons={};
  $('notice').textContent='Pilot '+selectedCount+' hisse taraması başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
@@ -113,6 +114,8 @@ async function scanBistPilot(){
   if(i<pilot.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
  }
  if(current!==requestId)return;
+ $('bistFailures').hidden=failures.length===0;
+ $('bistFailureList').textContent=failures.join('\n');
  stop.hidden=true;stop.disabled=true;if(!stoppedForErrors)progress.value=selectedCount;
  $('status').textContent=(stoppedForErrors?'Pilot durduruldu (3 ardışık hata): ':'Pilot tamamlandı: ')+success+'/'+selectedCount;
  const total=Math.round((performance.now()-start)/1000),avg=latencies.length?Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length/1000):null,age=ages.length?Math.max(...ages):null,oldestHourly=hourlyAges.length?Math.max(...hourlyAges):null,meanVol=volumeRatios.length?(volumeRatios.reduce((a,b)=>a+b,0)/volumeRatios.length).toFixed(2):null;
