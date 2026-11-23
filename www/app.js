@@ -21,7 +21,7 @@ function render(){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
-  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
+  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
  $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
@@ -60,10 +60,11 @@ async function scan(single=false){
    const payload=await response.json();if(current!==requestId)return;
    if(payload.code!==0||!payload.data||!Array.isArray(payload.data.list))throw Error('Beklenmeyen Binance TR yanıtı');
    const seen=new Set();
-   rows=payload.data.list.filter(x=>x&&typeof x.symbol==='string'&&x.spotTradingEnable!==0).map(x=>({symbol:x.symbol.replace(/_/g,''),price:null,change:null,score:null})).filter(x=>{if(!/^[A-Z0-9]+$/.test(x.symbol)||seen.has(x.symbol))return false;seen.add(x.symbol);return !single||x.symbol===symbol});
+   rows=payload.data.list.filter(x=>x&&typeof x.symbol==='string'&&x.spotTradingEnable!==0).map(x=>({symbol:x.symbol.replace(/_/g,''),price:null,change:null,score:null,trType:Number(x.type),apiSymbol:x.symbol})).filter(x=>{if(!/^[A-Z0-9]+$/.test(x.symbol)||seen.has(x.symbol))return false;seen.add(x.symbol);return !single||x.symbol===symbol});
    source='symbols';$('universe').textContent='Binance TR pariteleri: '+rows.length;
-   $('notice').textContent='Binance TR resmî API: parite listesi alındı. Bu uç nokta fiyat ve 24 saatlik değişim sağlamaz; fiyat taraması ve MTF 100 henüz aktif değil.';
-   render();$('status').textContent=rows.length+' Binance TR paritesi (fiyat verisi yok)';
+   if(single&&rows.length===1){await scoreTrSingle(current,rows[0]);if(current!==requestId)return;}
+   $('notice').textContent=single&&rows.length===1?(rows[0].score!==null?'Binance TR: 5m/15m/1h kapanmış mumlardan deneysel ön puan hesaplandı. 24s değişim yok.':'Binance TR mum verisi alınamadı; skor hesaplanmadı.'):'Binance TR resmî API: parite listesi alındı. Tek Tara ile sembol bazında mum verisi ve deneysel puan denenebilir. Toplu fiyat ve MTF 100 henüz aktif değil.';
+   render();$('status').textContent=rows.length+' Binance TR paritesi | '+rows.filter(x=>x.score!==null).length+' puanlı';
   }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Binance TR verisi alınamadı';$('notice').textContent='Binance TR resmî API bağlantısı başarısız: '+err.message+'. Android WebView/CORS kısıtlaması olabilir.'}
   return;
  }
@@ -80,6 +81,36 @@ async function scan(single=false){
   $('notice').textContent='24 saatlik fiyat/değişim verisi; gerçek MTF 100 sinyali değildir. BIST 631 hisse taraması ve işlem planı henüz bağlı değil.';
   render();if(!rows.length)$('status').textContent='Eşleşen sembol bulunamadı';else if(market==='FUTURES'||market==='BINANCE')await scoreBinanceCandidates(current,single,market);
  }catch(err){if(current!==requestId)return;rows=[];$('results').replaceChildren();$('status').textContent='Veri alınamadı';$('notice').textContent='Bağlantı, CORS veya servis kısıtlaması: '+err.message+'. Veri uydurulmadı.'}
+}
+
+async function scoreTrSingle(scanId,x){
+ if(![1,3].includes(x.trType))return;
+ try{
+  const base=x.trType===1?'https://api.binance.me/api/v1/klines':'https://cloudme-tr.2meta.app/api/v1/klines';
+  const series=await Promise.all(['5m','15m','1h'].map(async tf=>{
+   const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);
+   try{
+    const u=base+'?symbol='+encodeURIComponent(x.trType===1?x.symbol:x.apiSymbol)+'&interval='+tf+'&limit=80';
+    const res=await fetch(u,{signal:ctrl.signal,cache:'no-store'});
+    if(!res.ok)throw Error('HTTP '+res.status);
+    const body=await res.json(),data=body&&body.data;
+    if(body.code!==0||!Array.isArray(data))throw Error('Mum yanıtı geçersiz');
+    const bars=data.filter(c=>Array.isArray(c)&&c.length>=7&&Number(c[6])<Date.now()&&[2,4,5].every(i=>Number.isFinite(Number(c[i])))&&Number(c[4])>0&&Number(c[5])>=0);
+    if(bars.length<55)throw Error('Yetersiz mum');
+    return bars;
+   }finally{clearTimeout(timer)}
+  }));
+  if(scanId!==requestId)return;
+  let score=1;const parts=[];
+  series.forEach((bars,i)=>{
+   const closes=bars.map(c=>Number(c[4])),vols=bars.map(c=>Number(c[5])),e20=ema(closes,20),e50=ema(closes,50),r=rsi(closes);
+   const avg=vols.slice(-21,-1).reduce((a,b)=>a+b,0)/20,rv=avg>0?vols.at(-1)/avg:0,last=closes.at(-1);
+   const high=Math.max(...bars.slice(-21,-1).map(c=>Number(c[2])));
+   const part=(e20>e50?12:0)+(last>e20?6:0)+(r>=50&&r<=70?5:0)+(rv>=1.8?5:0)+(last>=high*.98?5:0);
+   score+=part;parts.push({tf:['5m','15m','1h'][i],score:part,trend:e20>e50?'Yukarı':'Aşağı',rsi:r,rvol:rv,near:last>=high*.98});
+  });
+  x.price=Number(series[0].at(-1)[4]);x.score=Math.min(100,score);x.scoreType='experimental';x.scoreParts=parts;
+ }catch(err){x.scoreError=err.message}
 }
 
 // Experimental candle-based screening; not the desktop Python MTF 100 formula.
