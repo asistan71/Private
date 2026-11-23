@@ -190,10 +190,6 @@ async function scan(single=false){
   if(!pythonApiUrl){
    if(symbol){await scanBistTV(symbol);return}
    await scanBistPilot();return;
-   rows=[];source='demo';render();
-   $('status').textContent='Toplu BIST veri kaynağı bekleniyor';
-   $('notice').textContent='631 hissenin toplu canlı taraması henüz bağlı değil. Arama alanına THYAO gibi bir sembol yazıp Tara ile Android doğrudan veri bağlantısını deneyebilirsiniz. Python API isteğe bağlıdır.';
-   return;
   }
   if(!pythonApiUrl){rows=[];source='demo';$('notice').textContent='Python motoruna bağlanmak için HTTPS API adresini girin. BIST fiyatı ve puanı uydurulmaz.';render();$('status').textContent='Python API bağlantısı gerekli';return}
   $('status').textContent='Python motoru BIST taraması çalışıyor…';
