@@ -1,10 +1,17 @@
 'use strict';
 const demo=[];
+let pythonApiUrl='';
+try{pythonApiUrl=localStorage.getItem('pt-python-api-url')||''}catch(_){}
+let pythonApiToken='';
+
 const $=id=>document.getElementById(id);
 let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0;
 let favorites={};
 try{favorites=JSON.parse(localStorage.getItem('pt-favorites-v1')||'{}')||{}}catch(_){favorites={}}
 const favoriteKey=s=>market+':'+s;
+$('pythonApiUrl').value=pythonApiUrl;
+$('savePythonApi').addEventListener('click',()=>{const url=$('pythonApiUrl').value.trim().replace(/\/+$/,'');try{const u=new URL(url);if(u.protocol!=='https:')throw Error('HTTPS gerekli');pythonApiUrl=u.origin+u.pathname.replace(/\/+$/,'');pythonApiToken=$('pythonApiToken').value;localStorage.setItem('pt-python-api-url',pythonApiUrl);$('notice').textContent='Python API adresi kaydedildi. BIST Tara ile bağlantıyı sınayabilirsiniz.'}catch(e){$('notice').textContent='Geçersiz bağlantı: '+e.message}});
+
 function saveFavorites(){try{localStorage.setItem('pt-favorites-v1',JSON.stringify(favorites))}catch(_){}}
 function render(){
  const q=$('search').value.trim().toUpperCase(),min=Number($('minScore').value)||0;
@@ -14,9 +21,9 @@ function render(){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score),x.score==null?'Skor hesaplanmadı':x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle'].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
-  tr.addEventListener('click',()=>{if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
+  tr.addEventListener('click',()=>{if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
- $('status').textContent=filtered.length+' '+(source==='live'?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
+ $('status').textContent=filtered.length+' '+((source==='live'||source==='python')?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
 }
 function reset(){requestId++;rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
@@ -26,32 +33,22 @@ async function scan(single=false){
  if(single&&!symbol){$('status').textContent='Önce sembol yazın';return}
  const current=++requestId;
  if(market==='BIST'){
-  // A licensed BIST feed must be served by a trusted backend. No API keys in the APK.
-  const endpoint=window.PT_BIST_API_URL;
-  if(!endpoint){source='demo';rows=[];$('notice').textContent='BIST veri kaynağı henüz bağlı değil. 631 hisse hedefleniyor; gerçek fiyat, hacim ve fırsat puanı mevcut değil.';render();$('status').textContent='BIST: veri kaynağı gerekli';return}
-  $('status').textContent='BIST verisi alınıyor…';
+  if(!pythonApiUrl){rows=[];source='demo';$('notice').textContent='Python motoruna bağlanmak için HTTPS API adresini girin. BIST fiyatı ve puanı uydurulmaz.';render();$('status').textContent='Python API bağlantısı gerekli';return}
+  $('status').textContent='Python motoru BIST taraması çalışıyor…';
   try{
-    const target=new URL(endpoint,location.href);
-    if(target.protocol!=='https:' && target.hostname!=='localhost')throw Error('Güvenli HTTPS bağlantısı gerekli');
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-    let response;try{response=await fetch(target.href,{signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}
-    if(!response.ok)throw Error('HTTP '+response.status);
+    const target=new URL(pythonApiUrl+'/api/bist/scan');
+    if(target.protocol!=='https:')throw Error('HTTPS gerekli');
+    if(single)target.searchParams.set('symbol',symbol);
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),180000);
+    let response;try{response=await fetch(target.href,{signal:controller.signal,cache:'no-store',headers:pythonApiToken?{'Authorization':'Bearer '+pythonApiToken}:{}})}finally{clearTimeout(timer)}
+    if(!response.ok)throw Error('API HTTP '+response.status);
     const payload=await response.json();if(current!==requestId)return;
-    if(!payload||!Array.isArray(payload.symbols)||typeof payload.source!=='string'||!payload.source.trim()||!Number.isFinite(Date.parse(payload.asOf)))throw Error('Geçersiz veri şeması');
-    if(Date.parse(payload.asOf)>Date.now()+300000)throw Error('Gelecek tarihli veri');
-    const ageMinutes=(Date.now()-Date.parse(payload.asOf))/60000;
-    if(ageMinutes>Math.max(30,Number(payload.delayedMinutes||0)+20))throw Error('Veri güncel değil ('+Math.round(ageMinutes)+' dk eski)');
-    const delay=Number(payload.delayedMinutes);
-    if(!Number.isFinite(delay)||delay<0)throw Error('Gecikme bilgisi eksik');
-    const seen=new Set();
-    rows=payload.symbols.filter(x=>{
-      if(!x||typeof x.symbol!=='string'||!/^([A-Z]{4,6})$/.test(x.symbol)||seen.has(x.symbol)||!Number.isFinite(x.last)||x.last<=0||!Number.isFinite(x.volume)||x.volume<0||x.currency!=='TRY')return false;
-      seen.add(x.symbol);return !single||x.symbol===symbol;
-    }).map(x=>({symbol:x.symbol,price:x.last,change:Number.isFinite(x.changePercent)?x.changePercent:null,score:null}));
-    source='live';$('universe').textContent='Alınan: '+rows.length+' / Hedef: 631';
-    $('notice').textContent='Kaynak: '+payload.source+' | Zaman: '+new Date(payload.asOf).toLocaleString('tr-TR')+' | Gecikme: '+delay+' dk. MTF 100 skoru hesaplanmadı.';
-    render();if(!rows.length)$('status').textContent='Geçerli sembol bulunamadı';
-  }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='BIST verisi alınamadı';$('notice').textContent='Canlı veri hatası: '+err.message+'. Demo sonuç üretilmedi.'}
+    if(!payload||!Array.isArray(payload.results)||!Number.isInteger(payload.requested))throw Error('Python API şeması geçersiz');
+    rows=payload.results.filter(x=>x&&typeof x.Sembol==='string'&&/^[A-Z0-9]{4,6}$/.test(x.Sembol)&&Number.isFinite(Number(x.Fiyat))&&Number(x.Fiyat)>0&&Number.isFinite(Number(x.Puan))).map(x=>({symbol:x.Sembol,price:Number(x.Fiyat),change:Number.isFinite(Number(x.Degisim))?Number(x.Degisim):null,score:Number(x.Puan),plan:x}));
+    source='python';$('universe').textContent='Taranan: '+payload.requested+' | Geçen: '+rows.length;
+    $('notice').textContent='Python v23.4 | Filtrelenen: '+(payload.filtered||0)+' | Hata: '+(payload.errors||0)+' | Veri zamanı doğrulanmadı; sonuçlar canlı fiyat olarak sunulmaz.';
+    render();$('status').textContent=rows.length+' Python analiz sonucu';
+  }catch(err){if(current!==requestId)return;rows=[];source='demo';render();$('status').textContent='Python API hatası';$('notice').textContent=err.message+' | API sunucusu HTTPS ve erişim izniyle çalışmalıdır.'}
   return;
 }
  if(market==='BINANCE_TR'){
