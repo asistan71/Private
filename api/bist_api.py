@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from secrets import compare_digest
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -47,7 +48,7 @@ for node in tree.body:
     elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in required_vars for t in node.targets):
         selected.append(node)
 # Original module updates BIST_HISSELERI by unioning market lists.
-selected.append(ast.parse("BIST_HISSELERI = sorted(set(BIST_HISSELERI) | set(YILDIZ_PAZAR) | set(ANA_PAZAR) | set(ALT_PAZAR))").body[0])
+
 namespace = {
     "bp": bp, "datetime": datetime, "time": time, "threading": threading,
     "_bist_cache": {}, "_bist_cache_lock": threading.Lock(),
@@ -70,7 +71,7 @@ lock = threading.Lock()
 scan_cache = {}
 
 def authorize(header):
-    if not header or header != "Bearer " + TOKEN:
+    if not header or not compare_digest(header, "Bearer " + TOKEN):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 @app.get("/api/health")
@@ -97,7 +98,7 @@ def scan(symbol: Optional[str] = Query(default=None, max_length=8),
     errors = 0
     filtered = 0
     first_error = None
-    with ThreadPoolExecutor(max_workers=min(namespace.get("BIST_WORKERS", 6), 6)) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(namespace.get("BIST_WORKERS", 6), 6))) as pool:
         futures = {pool.submit(namespace["analyze_bist_stock"], sym, tfs): sym for sym in symbols}
         for future in as_completed(futures):
             try:
