@@ -1,3 +1,17 @@
+# Bulut sunucusuz BIST API kurulumu (Windows + Android)
+
+1. GitHub deposunu Windows bilgisayarınıza indirin ve **orijinal** `Piyasa_Terminali_v23_4.py` dosyasını depo ana klasörüne koyun.
+2. `api/BIST_API_BASLAT.bat` dosyasını çift tıklayın. Python sanal ortamını kurar, gerekli paketleri yükler, erişim anahtarını sorar ve BIST motorunu yalnızca bilgisayarın yerel adresinde (`127.0.0.1:8765`) başlatır.
+3. Bilgisayara ve Android telefona **Tailscale** kurun, aynı hesabın özel ağına bağlayın. Windows üzerinde Tailscale'in **Serve** özelliğiyle `http://127.0.0.1:8765` servisini özel ağınıza HTTPS olarak sunun. Serve'in gösterdiği `https://...ts.net` adresini kullanın. **Funnel** (herkese açık yayın) açmayın.
+4. Android uygulamasında **BIST → Python API HTTPS adresi** alanına Tailscale Serve HTTPS adresini, **Erişim anahtarı** alanına başlatırken verdiğiniz anahtarı yazın; **Bağlantıyı kaydet** ile sağlık kontrolü yapın.
+5. **Tek Tara** için örneğin `THYAO` yazın. Gerçek sonuç dönerse BIST motoru çalışıyor demektir.
+
+Bilgisayar açık, Python API penceresi çalışıyor ve her iki cihaz Tailscale ağına bağlı olmalıdır. **Bulut sunucusu kiralanmaz**, ancak Tailscale bağlantı hizmeti kullanılır. Tailscale kurmak istemezseniz yerel ağda güvenilir bir HTTPS sertifikası/ters vekil yapılandırması gerekir; Android uygulaması güvenlik nedeniyle düz HTTP'yi kabul etmez.
+
+> Not: Bütün BIST evreni ilk taramada 180 saniyeyi aşabilir; önce Tek Tara ile test edin. Bu sürümde tam tarama için arka plan işi/sonuç önbelleği henüz yoktur. Kurulumun gerçek cihazda tamamlandığı henüz doğrulanmadı.
+
+---
+
 # BIST Python API — kurulum
 
 Bu servis **orijinal** `Piyasa_Terminali_v23_4.py` dosyasının BIST analiz fonksiyonlarını kullanır. Android'in içinde Python çalıştırmaz; Windows PC veya sürekli açık sunucuda çalışır.
