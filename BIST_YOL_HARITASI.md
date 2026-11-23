@@ -32,3 +32,10 @@ Bu dosya projenin kalıcı iş sırasıdır. BIST birinci önceliktir; Binance m
 
 ## Sıradaki kabul testi
 Yeni APK'da THYAO gir → Tara → durum/mesaj ve sonuç; ardından BIST arama, Favoriler, filtreler ve sekmelerin tepkisini kontrol et. Veri sağlayıcısı hata verirse hata mesajını kaydet ve düzelt.
+
+## Veri kaynağı kararı — bilgisayardaki ücretsiz yöntem
+- Masaüstü `api/bist_api.py` içindeki sağlayıcı: **borsapy**.
+- borsapy BIST mumlarını TradingView WebSocket üzerinden alır; varsayılan veriler yaklaşık 15 dakika gecikmeli olabilir (kaynak: borsapy README).
+- Android için yapılacak iş: borsapy'nin TradingView veri protokolünün JavaScript/Android uyarlamasını incelemek ve izin verilen erişim sınırları içinde aynı 1W/1D/1H OHLCV verilerini BistEngine'e aktarmak.
+- Ücretli istfin API anahtarı alanı kaldırıldı. Yahoo 429 sorunu çözülmüş değildir; ücretsiz veri bağlantısı tamamlandı denmeyecek.
+- Önce THYAO ile cihaz testi, sonra 10→100→631 hisse ölçeklendirmesi.
