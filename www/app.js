@@ -21,7 +21,7 @@ function render(){
   const tr=document.createElement('tr');tr.dataset.symbol=x.symbol;
   const star=document.createElement('td'),btn=document.createElement('button');btn.textContent=favorites[favoriteKey(x.symbol)]?'★':'☆';btn.setAttribute('aria-label',x.symbol+' favori');btn.className='star';btn.addEventListener('click',e=>{e.stopPropagation();const k=favoriteKey(x.symbol);if(favorites[k])delete favorites[k];else favorites[k]=true;saveFavorites();render()});star.append(btn);tr.append(star);
   [x.symbol,x.price==null?'—':Number(x.price).toLocaleString('tr-TR',{maximumFractionDigits:8}),x.change==null?'—':Number(x.change).toFixed(2)+'%',x.score==null?'—':String(x.score)+(x.scoreType==='experimental'?'*':''),x.score==null?'Skor hesaplanmadı':x.scoreType==='experimental'?(x.score>=80?'Ön analiz güçlü':x.score>=70?'Ön analiz izleme':'Ön analiz düşük'):(x.score>=80?'Güçlü izleme':x.score>=70?'İzleme':'Bekle')].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===2&&x.change!=null)td.className=x.change>=0?'up':'down';tr.append(td)});
-  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
+  tr.addEventListener('click',()=>{if((market==='FUTURES'||market==='BINANCE'||market==='BINANCE_TR')&&x.scoreType==='experimental'&&x.scoreParts){$('detail').textContent=x.symbol+' | Deneysel MTF ön puanı: '+x.score+'/100\n'+x.scoreParts.map(p=>p.tf+' | '+p.score+'/33 | EMA: '+p.trend+' | RSI: '+p.rsi.toFixed(1)+' | RVOL: '+p.rvol.toFixed(2)+'x | Tepe yakınlığı: '+(p.near?'Evet':'Hayır')).join('\n')+'\nSon 5dk mum kapanışı: '+new Date(x.candleTime).toLocaleString('tr-TR')+'\nYalnızca kapanmış mumlar. Orijinal Python MTF 100 skoru değildir.'}else if(market==='FUTURES'&&source==='live')analyzeFutures(x.symbol);else if(market==='BIST'&&source==='python'&&x.plan){const p=x.plan;$('detail').textContent=[p.Sembol+' | '+p.Sinyal+' | Puan: '+p.Puan,'Giriş: '+(p.Giris??'—')+' | Stop: '+(p.Stop??'—')+' | TP1: '+(p.TP1??'—')+' | TP2: '+(p.TP2??'—')+' | TP3: '+(p.TP3??'—'),'RSI: '+(p.RSI??'—')+' | RVOL: '+(p.HacimOran??'—'),'Veri zaman damgası doğrulanmadı.'].join('\n')}else $('detail').textContent=x.symbol+' | '+(source==='live'?'24 saatlik fiyat verisi. MTF strateji skoru, stop ve hedefler henüz hesaplanmadı.':'DEMO: Fiyat ve skor gerçek tarama sonucu değildir.')});$('results').append(tr);
  }
  $('status').textContent=filtered.length+' sonuç | '+rows.filter(x=>x.score!==null).length+' puanlı';
 }
@@ -110,6 +110,7 @@ async function scoreTrSingle(scanId,x){
     if(body.code!==0||!Array.isArray(data))throw Error('Mum yanıtı geçersiz');
     const bars=data.filter(c=>Array.isArray(c)&&c.length>=7&&Number(c[6])<Date.now()&&[2,4,5].every(i=>Number.isFinite(Number(c[i])))&&Number(c[4])>0&&Number(c[5])>=0);
     if(bars.length<55)throw Error('Yetersiz mum');
+    validateCandleFreshness(bars,tf);
     return bars;
    }finally{clearTimeout(timer)}
   }));
@@ -122,7 +123,7 @@ async function scoreTrSingle(scanId,x){
    const part=(e20>e50?12:0)+(last>e20?6:0)+(r>=50&&r<=70?5:0)+(rv>=1.8?5:0)+(last>=high*.98?5:0);
    score+=part;parts.push({tf:['5m','15m','1h'][i],score:part,trend:e20>e50?'Yukarı':'Aşağı',rsi:r,rvol:rv,near:last>=high*.98});
   });
-  x.price=Number(series[0].at(-1)[4]);x.score=Math.min(100,score);x.scoreType='experimental';x.scoreParts=parts;
+  x.price=Number(series[0].at(-1)[4]);x.score=Math.min(100,score);x.scoreType='experimental';x.scoreParts=parts;x.candleTime=Number(series[0].at(-1)[6]);
  }catch(err){x.scoreError=err.message}
 }
 
@@ -147,6 +148,7 @@ async function scoreBinanceCandidates(scanId, single, selectedMarket){
       if(!Array.isArray(data))throw Error('Mum formatı');
       const bars=data.filter(c=>Array.isArray(c)&&c.length>=7&&Number.isFinite(Number(c[6]))&&Number(c[6])<Date.now()&&[2,4,5].every(i=>Number.isFinite(Number(c[i])))&&Number(c[4])>0&&Number(c[5])>=0);
       if(bars.length<55)throw Error('Yetersiz mum');
+      validateCandleFreshness(bars,interval);
       return bars;
      }finally{clearTimeout(timeout)}
     }));
@@ -163,7 +165,7 @@ async function scoreBinanceCandidates(scanId, single, selectedMarket){
      const part=(e20>e50?12:0)+(last>e20?6:0)+(r>=50&&r<=70?5:0)+(rv>=1.8?5:0)+(last>=prevHigh*.98?5:0);
      score+=part;scoreParts.push({tf:['5m','15m','1h'][i],score:part,trend:e20>e50?'Yukarı':'Aşağı',rsi:r,rvol:rv,near:last>=prevHigh*.98});
     }
-    x.score=Math.min(100,score+1);x.scoreParts=scoreParts;x.scoreType='experimental';success++;
+    x.score=Math.min(100,score+1);x.scoreParts=scoreParts;x.scoreType='experimental';x.candleTime=Number(series[0].at(-1)[6]);success++;
    }catch(err){failed++;if(!firstError)firstError=err.message||String(err)}
    if(scanId!==requestId)return;
    render();
@@ -175,6 +177,7 @@ async function scoreBinanceCandidates(scanId, single, selectedMarket){
  $('notice').textContent='Deneysel '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi.'+(failed?' Veri hatası: '+firstError+'.':'')+' Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
 }
 
+function validateCandleFreshness(bars,interval){const last=Number(bars.at(-1)?.[6]);const maxAge={'5m':15*60000,'15m':45*60000,'1h':3*3600000}[interval];if(!Number.isFinite(last)||!maxAge||Date.now()-last>maxAge||last>Date.now())throw Error(interval+' mum verisi güncel değil');}
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let e=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(const v of values.slice(period))e=v*k+e*(1-k);return e}
 function rsi(closes,period=14){if(closes.length<=period)return null;let gain=0,loss=0;for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];gain+=Math.max(d,0);loss+=Math.max(-d,0)}gain/=period;loss/=period;for(let i=period+1;i<closes.length;i++){const d=closes[i]-closes[i-1];gain=(gain*(period-1)+Math.max(d,0))/period;loss=(loss*(period-1)+Math.max(-d,0))/period}return loss===0?(gain===0?50:100):100-100/(1+gain/loss)}
 async function analyzeFutures(symbol){
