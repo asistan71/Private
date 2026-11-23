@@ -60,6 +60,45 @@ async function getBistChart(url){
   return await response.json();
  }finally{clearTimeout(timer)}
 }
+const BIST_PILOT=['THYAO','ASELS','TUPRS','BIMAS','AKBNK','GARAN','SISE','EREGL','KCHOL','TAVHL'];
+async function analyzeBistSymbol(symbol){
+ const histories=await BistTV.fetchHistory(symbol),raw={};let latest=0;
+ for(const tf of ['1W','1D','1H']){
+  const bars=histories[tf];
+  if(!Array.isArray(bars))throw Error(tf+' verisi eksik');
+  const seconds=tf==='1H'?3600:tf==='1D'?86400:604800;
+  const closed=bars.filter(b=>Number.isFinite(b.ts)&&Number.isFinite(b.close)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.volume)&&b.close>0&&b.high>=b.close&&b.low<=b.close&&b.volume>=0&&b.ts*1000+seconds*1000<=Date.now());
+  if(closed.length<55)throw Error(tf+' kapanmış mum sayısı yetersiz: '+closed.length);
+  const tail=closed.slice(-200);
+  raw[tf]={close:tail.map(b=>b.close),high:tail.map(b=>b.high),low:tail.map(b=>b.low),volume:tail.map(b=>b.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
+  latest=Math.max(latest,tail.at(-1).ts);
+ }
+ const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2});
+ if(result.Hata)throw Error(result.Hata);
+ const diagnostic=result.Filtre?BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:true}):result;
+ if(diagnostic.Hata)throw Error(diagnostic.Hata);
+ return {row:{symbol,price:diagnostic.Fiyat,change:diagnostic.Degisim,score:diagnostic.Puan,scoreType:'local',plan:diagnostic,filterReason:result.Filtre||''},latest};
+}
+async function scanBistPilot(){
+ const current=++requestId;
+ rows=[];source='local';$('search').value='';$('universe').textContent='Pilot: 10 hisse';$('detail').textContent='';render();
+ let errors=0,success=0,filtered=0;const failures=[];
+ $('notice').textContent='10 hisselik pilot tarama başlatıldı. Sağlayıcı istek sınırları nedeniyle sırayla taranır. Bu 631 hisse taraması değildir.';
+ for(let i=0;i<BIST_PILOT.length;i++){
+  if(current!==requestId||market!=='BIST')return;
+  const sym=BIST_PILOT[i];$('status').textContent=(i+1)+'/10 | '+sym+' alınıyor…';
+  try{
+   const {row}=await analyzeBistSymbol(sym);
+   if(current!==requestId)return;
+   rows.push(row);success++;if(row.filterReason)filtered++;
+  }catch(e){if(current!==requestId)return;errors++;failures.push(sym+': '+e.message.slice(0,90))}
+  render();$('status').textContent=(i+1)+'/10 tamamlandı | '+success+' veri | '+errors+' hata';
+  if(i<BIST_PILOT.length-1)await new Promise(resolve=>setTimeout(resolve,1200));
+ }
+ if(current!==requestId)return;
+ $('status').textContent='Pilot tamamlandı: '+success+'/10';
+ $('notice').textContent='10 hisse pilotu | veri: '+success+' | filtrelenen: '+filtered+' | hata: '+errors+'. Filtrelenen puanlar teşhis amaçlıdır. '+(failures.length?'Hatalar: '+failures.slice(0,3).join(' ; '):'')+' Ücretsiz sağlayıcı sınırları nedeniyle tüm hisselerde başarı garanti değildir.';
+}
 async function scanBistTV(symbol){
  const current=++requestId;
  $('status').textContent=symbol+' | TradingView ücretsiz BIST mumları alınıyor…';
@@ -150,6 +189,7 @@ async function scan(single=false){
  if(market==='BIST'){
   if(!pythonApiUrl){
    if(symbol){await scanBistTV(symbol);return}
+   await scanBistPilot();return;
    rows=[];source='demo';render();
    $('status').textContent='Toplu BIST veri kaynağı bekleniyor';
    $('notice').textContent='631 hissenin toplu canlı taraması henüz bağlı değil. Arama alanına THYAO gibi bir sembol yazıp Tara ile Android doğrudan veri bağlantısını deneyebilirsiniz. Python API isteğe bağlıdır.';
