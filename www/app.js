@@ -5,7 +5,7 @@ try{pythonApiUrl=localStorage.getItem('pt-python-api-url')||''}catch(_){}
 let pythonApiToken='';
 
 const $=id=>document.getElementById(id);
-let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0;
+let market='BIST',rows=[],source='demo',onlyFavorites=false,requestId=0,detailRequestId=0;
 let favorites={};
 try{favorites=JSON.parse(localStorage.getItem('pt-favorites-v1')||'{}')||{}}catch(_){favorites={}}
 const favoriteKey=s=>market+':'+s;
@@ -25,13 +25,13 @@ function render(){
  }
  $('status').textContent=filtered.length+' '+((source==='live'||source==='python')?'piyasa kaydı':source==='symbols'?'parite (fiyat yok)':'kayıt');
 }
-function reset(){requestId++;rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
+function reset(){requestId++;detailRequestId++;$('pythonBridgeSettings').hidden=market!=='BIST';rows=[];source='demo';$('results').replaceChildren();$('detail').textContent='';$('status').textContent='Veri bekleniyor';$('universe').textContent=market==='BIST'?'Evren: 631 (hedef)':'Evren: veri bekleniyor';$('notice').textContent=market==='BIST'?'BIST canlı veri sağlayıcısı bağlı değil; demo yalnızca arayüz testidir.':'24 saatlik fiyat sorgusu. Strateji skoru henüz hesaplanmıyor.';render()}
 document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>{market=b.dataset.market;document.querySelectorAll('[data-market]').forEach(x=>x.classList.toggle('active',x===b));reset()}));
 $('favorites').addEventListener('click',()=>{onlyFavorites=!onlyFavorites;$('favorites').classList.toggle('active',onlyFavorites);render()});
 async function scan(single=false){
  const symbol=$('search').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
  if(single&&!symbol){$('status').textContent='Önce sembol yazın';return}
- const current=++requestId;
+ const current=++requestId;detailRequestId++;
  if(market==='BIST'){
   if(!pythonApiUrl){rows=[];source='demo';$('notice').textContent='Python motoruna bağlanmak için HTTPS API adresini girin. BIST fiyatı ve puanı uydurulmaz.';render();$('status').textContent='Python API bağlantısı gerekli';return}
   $('status').textContent='Python motoru BIST taraması çalışıyor…';
@@ -131,14 +131,14 @@ async function scoreFuturesCandidates(scanId, single){
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let e=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(const v of values.slice(period))e=v*k+e*(1-k);return e}
 function rsi(closes,period=14){if(closes.length<=period)return null;let gain=0,loss=0;for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];gain+=Math.max(d,0);loss+=Math.max(-d,0)}gain/=period;loss/=period;for(let i=period+1;i<closes.length;i++){const d=closes[i]-closes[i-1];gain=(gain*(period-1)+Math.max(d,0))/period;loss=(loss*(period-1)+Math.max(-d,0))/period}return loss===0?(gain===0?50:100):100-100/(1+gain/loss)}
 async function analyzeFutures(symbol){
- const id=++requestId,detail=$('detail');detail.textContent=symbol+' | 5m / 15m / 1h mumları alınıyor…';
+ const id=++detailRequestId,detail=$('detail');detail.textContent=symbol+' | 5m / 15m / 1h mumları alınıyor…';
  try{
   const intervals=['5m','15m','1h'];
   const series=await Promise.all(intervals.map(async interval=>{
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
    try{const url='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(symbol)+'&interval='+interval+'&limit=100';const response=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!response.ok)throw Error(interval+' HTTP '+response.status);const candles=await response.json();if(!Array.isArray(candles))throw Error(interval+' geçersiz mum verisi');const completed=candles.filter(c=>Array.isArray(c)&&c.length>=7&&Number.isFinite(Number(c[6]))&&Number(c[6])<Date.now()&&[1,2,3,4,5].every(i=>Number.isFinite(Number(c[i]))&&Number(c[i])>=0)&&Number(c[4])>0);if(completed.length<55)throw Error(interval+' yetersiz veya geçersiz kapanmış mum');return{interval,candles:completed}}finally{clearTimeout(timer)}
   }));
-  if(id!==requestId)return;
+  if(id!==detailRequestId)return;
   const output=series.map(({interval,candles})=>{
    const closes=candles.map(c=>Number(c[4])),volumes=candles.map(c=>Number(c[5]));
    const fast=ema(closes,20),slow=ema(closes,50),strength=rsi(closes);
@@ -162,8 +162,9 @@ async function analyzeFutures(symbol){
   const watch=document.createElement('p');watch.textContent='Erken hacim izleme (deneysel): '+(early.length?early.join(', '):'Koşullar sağlanmadı')+' | Son 20 mum tepe üzeri kapanış: '+(broken.length?broken.join(', '):'Yok');detail.append(watch);
   for(const x of output){const line=document.createElement('p');line.textContent=x.interval+' | EMA trendi: '+x.trend+' | RSI14: '+(x.rsi==null?'—':x.rsi.toFixed(1))+' | Göreceli hacim: '+(x.rv==null?'—':x.rv.toFixed(2)+'x')+' | Tepeye uzaklık: '+(x.distance===null?'—':x.distance.toFixed(2)+'%');detail.append(line)}
   const note=document.createElement('small');note.textContent='Yalnızca kapanmış mumlar kullanılır. Deneysel izleme: EMA20>EMA50, RVOL≥1.8, RSI 50–75 ve son 20 mum tepesine %0–2 mesafe. Bu masaüstü kalkış algoritması değildir. Giriş, stop, TP veya al/sat sinyali üretilmez. Canlı veri erişimi bölgesel olarak kısıtlanabilir.';detail.append(note);
- }catch(err){if(id===requestId)detail.textContent='MTF ön analizi alınamadı: '+err.message}
+ }catch(err){if(id===detailRequestId)detail.textContent='MTF ön analizi alınamadı: '+err.message}
 }
 
 $('scan').addEventListener('click',()=>scan(false));$('single').addEventListener('click',()=>scan(true));
+$('pythonBridgeSettings').hidden=false;
 $('search').addEventListener('input',render);$('minScore').addEventListener('input',render);$('onlyStrong').addEventListener('change',render);
