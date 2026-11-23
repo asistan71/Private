@@ -59,20 +59,24 @@ async function scanBistDirect(){
    if(!response.ok)throw Error(tf+' HTTP '+response.status);
    const body=await response.json(),data=body?.chart?.result?.[0],q=data?.indicators?.quote?.[0];
    if(!q||!Array.isArray(data.timestamp))throw Error(tf+' beklenmeyen veri şeması');
+   if(data.meta?.symbol&&data.meta.symbol.toUpperCase()!==symbol+'.IS')throw Error(tf+' sembol uyuşmazlığı');
    const candles=data.timestamp.map((ts,i)=>({ts,close:q.close?.[i],high:q.high?.[i],low:q.low?.[i],volume:q.volume?.[i]}))
     .filter(x=>[x.ts,x.close,x.high,x.low,x.volume].every(Number.isFinite)&&x.close>0&&x.high>=x.close&&x.low<=x.close&&x.volume>=0);
    if(candles.length<60)throw Error(tf+' için yeterli mum yok');
    // Yahoo chart may include a still-open bar; discard it to avoid look-ahead.
-   const seconds={'1W':7*86400,'1D':86400,'1H':3600}[tf];
-   const completed=candles.filter(x=>x.ts*1000+seconds*1000<=Date.now());
+   // Weekly bars are anchored to the exchange week, not seven days after Yahoo's timestamp.
+   // Use the previous weekly bar; daily/hourly require a full nominal interval.
+   const seconds={'1D':86400,'1H':3600}[tf];
+   const completed=tf==='1W'?candles.slice(0,-1):candles.filter(x=>x.ts*1000+seconds*1000<=Date.now());
    if(completed.length<55)throw Error(tf+' için kapanmış mum yetersiz');
    const tail=completed.slice(-200);
    raw[tf]={close:tail.map(x=>x.close),high:tail.map(x=>x.high),low:tail.map(x=>x.low),volume:tail.map(x=>x.volume),lastDate:new Date(tail.at(-1).ts*1000).toISOString().slice(0,10)};
    lastData=Math.max(lastData,tail.at(-1).ts);
   }
   if(current!==requestId)return;
-  const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:true});
+  const result=BistEngine.score(symbol,raw,{minScore:70,confirmedScore:80,riskPercent:2,filtersOff:false});
   if(result.Hata)throw Error(result.Hata);
+  if(result.Filtre){rows=[];source='local';$('universe').textContent='Tek hisse: '+symbol;render();$('status').textContent='Filtrelenen: '+symbol;$('notice').textContent='Veri alındı; '+symbol+' filtreye takıldı: '+result.Filtre+'. Son veri: '+new Date(lastData*1000).toLocaleString('tr-TR');return}
   rows=[{symbol,price:result.Fiyat,change:result.Degisim,score:result.Puan,scoreType:'local',plan:result}];source='local';
   $('universe').textContent='Tek hisse: '+symbol;
   $('notice').textContent='Deneysel doğrudan Yahoo Finance verisi; resmi BIST akışı değildir. Son veri: '+new Date(lastData*1000).toLocaleString('tr-TR')+'. Skor orijinal Python ile eşdeğerliği doğrulanmamış JS uyarlamasıdır. Veriler gecikmeli olabilir.';
