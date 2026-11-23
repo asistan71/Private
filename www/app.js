@@ -75,18 +75,18 @@ async function scan(single=false){
   if(!response.ok)throw new Error('HTTP '+response.status);
   const data=await response.json();if(current!==requestId)return;
   if(!Array.isArray(data))throw new Error('Beklenmeyen veri biçimi');
-  source='live';rows=data.filter(x=>typeof x.symbol==='string'&&(!single||x.symbol===symbol)&&(market!=='FUTURES'||x.symbol.endsWith('USDT'))).slice(0,single?1:1000).map(x=>({symbol:x.symbol,price:Number.isFinite(Number(x.lastPrice))?Number(x.lastPrice):null,change:Number.isFinite(Number(x.priceChangePercent))?Number(x.priceChangePercent):null,score:null,quoteVolume:Number(x.quoteVolume)||0}));
+  source='live';rows=data.filter(x=>typeof x.symbol==='string'&&(!single||x.symbol===symbol)&&((market!=='FUTURES'&&market!=='BINANCE')||x.symbol.endsWith('USDT'))).slice(0,single?1:1000).map(x=>({symbol:x.symbol,price:Number.isFinite(Number(x.lastPrice))?Number(x.lastPrice):null,change:Number.isFinite(Number(x.priceChangePercent))?Number(x.priceChangePercent):null,score:null,quoteVolume:Number(x.quoteVolume)||0}));
   $('universe').textContent='Getirilen kayıt: '+rows.length;
   $('notice').textContent='24 saatlik fiyat/değişim verisi; gerçek MTF 100 sinyali değildir. BIST 631 hisse taraması ve işlem planı henüz bağlı değil.';
-  render();if(!rows.length)$('status').textContent='Eşleşen sembol bulunamadı';else if(market==='FUTURES')await scoreFuturesCandidates(current,single);
+  render();if(!rows.length)$('status').textContent='Eşleşen sembol bulunamadı';else if(market==='FUTURES'||market==='BINANCE')await scoreBinanceCandidates(current,single,market);
  }catch(err){if(current!==requestId)return;rows=[];$('results').replaceChildren();$('status').textContent='Veri alınamadı';$('notice').textContent='Bağlantı, CORS veya servis kısıtlaması: '+err.message+'. Veri uydurulmadı.'}
 }
 
 // Experimental candle-based screening; not the desktop Python MTF 100 formula.
-async function scoreFuturesCandidates(scanId, single){
- const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:12);
+async function scoreBinanceCandidates(scanId, single, selectedMarket){
+ const candidates=rows.filter(x=>x.symbol.endsWith('USDT')&&x.price!==null).sort((a,b)=>(b.quoteVolume||0)-(a.quoteVolume||0)).slice(0,single?1:20);
  if(!candidates.length)return;
- $('notice').textContent='İlk '+candidates.length+' USDT Futures paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Diğerlerinde skor yok.';
+ $('notice').textContent='İlk '+candidates.length+' USDT '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' paritesi 5m/15m/1h kapanmış mumlarla deneysel olarak puanlanıyor. Diğerlerinde skor yok.';
  let cursor=0,success=0,failed=0;
  async function worker(){
   while(cursor<candidates.length&&scanId===requestId){
@@ -95,7 +95,8 @@ async function scoreFuturesCandidates(scanId, single){
     const series=await Promise.all(['5m','15m','1h'].map(async interval=>{
      const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),10000);
      try{
-      const u='https://fapi.binance.com/fapi/v1/klines?symbol='+encodeURIComponent(x.symbol)+'&interval='+interval+'&limit=80';
+      const base=selectedMarket==='FUTURES'?'https://fapi.binance.com/fapi/v1/klines':'https://api.binance.com/api/v3/klines';
+      const u=base+'?symbol='+encodeURIComponent(x.symbol)+'&interval='+interval+'&limit=80';
       const response=await fetch(u,{signal:ctrl.signal,cache:'no-store'});
       if(!response.ok)throw Error('HTTP '+response.status);
       const data=await response.json();
@@ -105,7 +106,7 @@ async function scoreFuturesCandidates(scanId, single){
       return bars;
      }finally{clearTimeout(timeout)}
     }));
-    if(scanId!==requestId)return;
+    if(scanId!==requestId||market!==selectedMarket)return;
     let score=0;
     for(const bars of series){
      const closes=bars.map(c=>Number(c[4])),vols=bars.map(c=>Number(c[5]));
@@ -125,7 +126,7 @@ async function scoreFuturesCandidates(scanId, single){
  }
  await Promise.all(Array.from({length:3},()=>worker()));
  if(scanId!==requestId)return;
- $('notice').textContent='Deneysel MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi. Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
+ $('notice').textContent='Deneysel '+(selectedMarket==='FUTURES'?'Futures':'Spot')+' MTF ön puanı: '+success+'/'+candidates.length+' parite hesaplandı. Sadece yüksek 24s hacimli ilk '+candidates.length+' aday incelendi. Bu masaüstü Python MTF 100 skoru veya al/sat sinyali değildir.';
 }
 
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let e=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(const v of values.slice(period))e=v*k+e*(1-k);return e}
